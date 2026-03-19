@@ -1,0 +1,35 @@
+{
+  "name": "@openclaw-qdrant-rag/core",
+  "version": "1.0.0",
+  "description": "Shared RAG core library for OpenClaw Qdrant RAG plugin and skill",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  }
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "keywords": [
+    "openclaw",
+    "rag",
+    "qdrant",
+    "embeddings",
+    "vector-search"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}

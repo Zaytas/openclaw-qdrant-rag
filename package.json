@@ -1,0 +1,21 @@
+{
+  "name": "openclaw-qdrant-rag",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Qdrant RAG memory system for OpenClaw — automatic context retrieval with enforced recall",
+  "license": "MIT",
+  "workspaces": [
+    "packages/rag-core",
+    "packages/plugin",
+    "packages/skill"
+  ],
+  "scripts": {
+    "build": "npm run build:core && npm run build:plugin",
+    "build:core": "cd packages/rag-core && npx tsc",
+    "build:plugin": "cd packages/plugin && npx tsc",
+    "clean": "rm -rf packages/rag-core/dist packages/plugin/dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

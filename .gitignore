@@ -1,0 +1,18 @@
+node_modules/
+*.log
+.env
+
+# State files (user-specific, not distributed)
+packages/skill/index-state.json
+packages/skill/transcript-state.json
+packages/skill/summary-state.json
+packages/skill/pending-summaries.json
+packages/skill/pending-summary-input.json
+packages/skill/summaries/
+packages/skill/logs/
+packages/skill/.summarize-worker.lock
+packages/skill/qdrant-rag.config.json
+
+# Keep dist/ committed for low-friction installs
+# !packages/rag-core/dist/
+# !packages/plugin/dist/

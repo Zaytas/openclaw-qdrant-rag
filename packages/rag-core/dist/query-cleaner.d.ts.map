@@ -1,0 +1,1 @@
+{"version":3,"file":"query-cleaner.d.ts","sourceRoot":"","sources":["../src/query-cleaner.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AA+CH,MAAM,WAAW,YAAY;IAC3B,4DAA4D;IAC5D,QAAQ,EAAE,MAAM,CAAC;IACjB,wDAAwD;IACxD,OAAO,EAAE,MAAM,CAAC;CACjB;AAED;;;;;;GAMG;AACH,wBAAgB,UAAU,CACxB,OAAO,EAAE,MAAM,EACf,WAAW,CAAC,EAAE,MAAM,EAAE,GACrB,YAAY,CA8Cd"}

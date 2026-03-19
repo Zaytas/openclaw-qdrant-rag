@@ -1,0 +1,20 @@
+{
+  "qdrantUrl": "http://localhost:6333",
+  "collection": "memory",
+  "embeddingModel": "models/gemini-embedding-001",
+  "embeddingDimensions": 3072,
+  "scoreThreshold": 0.4,
+  "sourceWeights": {
+    "summary": 1.15,
+    "file": 1.0,
+    "transcript": 0.9
+  },
+  "validAgents": ["main"],
+  "chunkSize": 500,
+  "chunkOverlap": 50,
+  "batchSize": 10,
+  "scanDirs": ["", "memory"],
+  "includeExtensions": [".md"],
+  "excludeFiles": ["SECRETS.md"],
+  "excludeDirs": ["node_modules", ".git"]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "qdrant-rag",
+  "name": "Qdrant RAG Auto-Recall",
+  "version": "1.0.0",
+  "description": "Automatic memory retrieval from Qdrant vector database. Injects relevant context into every qualifying message — no agent decision needed.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "configPath": { "type": "string", "description": "Path to shared qdrant-rag.config.json" },
+      "autoRecall": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 10, "default": 6 },
+          "minScore": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.4 },
+          "maxTokens": { "type": "integer", "minimum": 100, "default": 2000 },
+          "hardCapTokens": { "type": "integer", "minimum": 200, "default": 3000 },
+          "skipSubagents": { "type": "boolean", "default": true }
+        }
+      },
+      "preGate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minMessageLength": { "type": "integer", "minimum": 0, "default": 10 },
+          "skipPatterns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["^\\\\s*$", "^(ok|thanks|yes|no|sure|got it)\\\\s*$"]
+          }
+        }
+      },
+      "embedding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cacheTtlMs": { "type": "integer", "minimum": 0, "default": 300000 },
+          "cacheMaxSize": { "type": "integer", "minimum": 0, "default": 100 }
+        }
+      },
+      "debug": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "logQueries": { "type": "boolean", "default": false },
+          "logInjections": { "type": "boolean", "default": false },
+          "logSkips": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

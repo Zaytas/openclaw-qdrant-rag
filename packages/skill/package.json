@@ -1,0 +1,7 @@
+{
+  "name": "@openclaw-qdrant-rag/skill",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Indexing pipeline and maintenance scripts for the Qdrant RAG memory system",
+  "license": "MIT"
+}

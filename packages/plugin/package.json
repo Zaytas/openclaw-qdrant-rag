@@ -1,0 +1,35 @@
+{
+  "name": "@openclaw-qdrant-rag/plugin",
+  "version": "1.0.0",
+  "description": "OpenClaw plugin for automatic Qdrant RAG context injection",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  }
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "src",
+    "openclaw.plugin.json"
+  ],
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "rag",
+    "qdrant",
+    "auto-recall"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "5.5"
+  }
+}
