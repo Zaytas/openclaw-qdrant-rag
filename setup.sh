@@ -86,15 +86,18 @@ OPENCLAW_CONFIG="$OPENCLAW_HOME/openclaw.json"
 if [ ! -f "$OPENCLAW_CONFIG" ]; then
   color_echo "$red" "✗ OpenClaw configuration file not found at $OPENCLAW_CONFIG. Please ensure OpenClaw is installed and initialized."
 else
-  PLUGIN_SNIPPET=$(cat << EOM
+  PLUGIN_SNIPPET=$(cat << 'EOM'
 {
-  "name": "qdrant-rag",
-  "entry": "skills/qdrant-rag"
+  "id": "qdrant-rag",
+  "path": "<path-to-repo>/packages/plugin"
 }
 EOM
   )
-  color_echo "$yellow" "⚠ Add the following to the plugins array in $OPENCLAW_CONFIG:"
+  color_echo "$yellow" "⚠ Add the following to the 'plugins' array in $OPENCLAW_CONFIG:"
   echo "$PLUGIN_SNIPPET"
+  color_echo "$yellow" "  Replace <path-to-repo> with the absolute path to this cloned repository."
+  color_echo "$yellow" "  Example: $(pwd)/packages/plugin"
+  color_echo "$yellow" "  After editing, restart the OpenClaw gateway for the plugin to load."
 fi
 
 # Step 6: Optional - Start Qdrant via Docker
@@ -123,7 +126,23 @@ if command -v curl &> /dev/null; then
 
   MEMORY_COLLECTION_EXISTS=$(curl -s http://localhost:6333/collections | grep -q 'memory' && echo 'yes' || echo 'no')
   if [ "$MEMORY_COLLECTION_EXISTS" == "no" ]; then
-    color_echo "$yellow" "⚠ memory collection not found. It will be created during the first indexing process."
+    color_echo "$yellow" "⚠ memory collection not found. Creating it now..."
+    curl -s -X PUT http://localhost:6333/collections/memory \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "vectors": {
+          "size": 3072,
+          "distance": "Cosine"
+        }
+      }' > /dev/null 2>&1
+
+    # Verify creation
+    VERIFY=$(curl -s http://localhost:6333/collections | grep -q 'memory' && echo 'yes' || echo 'no')
+    if [ "$VERIFY" == "yes" ]; then
+      color_echo "$green" "✓ memory collection created (3072 dimensions, cosine distance)."
+    else
+      color_echo "$red" "✗ Failed to create memory collection. Check Qdrant logs."
+    fi
   else
     color_echo "$green" "✓ memory collection exists."
   fi
