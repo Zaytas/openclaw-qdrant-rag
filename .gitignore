@@ -16,3 +16,4 @@ packages/skill/qdrant-rag.config.json
 # Keep dist/ committed for low-friction installs
 # !packages/rag-core/dist/
 # !packages/plugin/dist/
+*.bak

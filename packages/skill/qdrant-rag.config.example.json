@@ -1,4 +1,5 @@
 {
+  "_comment": "excludeFiles/excludeDirs prevent sensitive, operational, and non-memory files from being indexed. MEMORY.md and USER.md contain private data. IDENTITY.md, HEARTBEAT.md, TOOLS.md are operational. Dirs like plugins, projects, backups, logs, summaries, and archive contain code, generated content, or archived data — not personal memory worth indexing.",
   "qdrantUrl": "http://localhost:6333",
   "collection": "memory",
   "embeddingModel": "models/gemini-embedding-001",
@@ -15,6 +16,6 @@
   "batchSize": 10,
   "scanDirs": ["", "memory"],
   "includeExtensions": [".md"],
-  "excludeFiles": ["SECRETS.md"],
-  "excludeDirs": ["node_modules", ".git"]
+  "excludeFiles": ["SECRETS.md", "BOOTSTRAP.md", "MEMORY.md", "USER.md", "IDENTITY.md", "HEARTBEAT.md", "TOOLS.md"],
+  "excludeDirs": ["node_modules", ".git", "mission-control", "scripts", "plugins", "projects", "backups", "docs", "logs", "summaries", ".openclaw", "archive"]
 }

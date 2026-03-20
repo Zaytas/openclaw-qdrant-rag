@@ -113,6 +113,14 @@ function discoverTranscripts(agents, openclawDir) {
 /**
  * Parse a session JSONL file and extract user + assistant messages.
  *
+ * OpenClaw session JSONL format:
+ *   - Each line is a JSON object with a `type` field
+ *   - Only `type === "message"` entries contain conversation content
+ *   - Message role is at `entry.message.role`
+ *   - Content is an array at `entry.message.content`, each element has
+ *     `{type: "text", text: "..."}` or `{type: "tool_use", ...}` etc.
+ *   - The `type === "session"` entry contains session metadata
+ *
  * @param {string} filePath - Path to the .jsonl file.
  * @returns {Promise<Array<{role: string, content: string, timestamp?: string, byteOffset: number}>>}
  */
@@ -134,14 +142,51 @@ async function parseTranscript(filePath) {
 
     try {
       const entry = JSON.parse(line);
-      const role = entry.role || entry.type;
-      const content = entry.content || entry.text || entry.message || '';
 
-      if ((role === 'user' || role === 'assistant') && content.trim()) {
+      // Only process message entries
+      if (entry.type !== 'message' || !entry.message) {
+        byteOffset += lineBytes;
+        continue;
+      }
+
+      const role = entry.message.role;
+      if (role !== 'user' && role !== 'assistant') {
+        byteOffset += lineBytes;
+        continue;
+      }
+
+      // Extract text from content array
+      const contentParts = entry.message.content;
+      let text = '';
+
+      if (typeof contentParts === 'string') {
+        // Handle edge case: content might be a plain string
+        text = contentParts;
+      } else if (Array.isArray(contentParts)) {
+        const textParts = [];
+        let hasToolUse = false;
+
+        for (const part of contentParts) {
+          if (part.type === 'text' && part.text) {
+            textParts.push(part.text);
+          } else if (part.type === 'tool_use') {
+            hasToolUse = true;
+          }
+          // Skip tool_result, image, and other non-text content types
+        }
+
+        text = textParts.join('\n');
+        // If assistant message was only tool calls with no text, add a brief marker
+        if (!text && hasToolUse) {
+          text = '[tool call]';
+        }
+      }
+
+      if (text.trim()) {
         messages.push({
           role,
-          content: content.trim(),
-          timestamp: entry.timestamp || entry.ts || entry.created || undefined,
+          content: text.trim(),
+          timestamp: entry.timestamp || undefined,
           byteOffset,
         });
       }
