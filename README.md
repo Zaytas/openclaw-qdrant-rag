@@ -235,6 +235,52 @@ Located in `packages/skill/scripts/`:
 
 ---
 
+## Scheduled Indexing (Cron)
+
+The plugin handles auto-recall (query-time). But you need to periodically index new content into Qdrant. Set up two OpenClaw cron jobs:
+
+### 1. Nightly Indexer
+
+Runs the indexing pipeline (workspace files + transcripts). Recommended: daily.
+
+Example OpenClaw cron job (via `/cron add` or the cron API):
+
+```json
+{
+  "name": "Nightly RAG Indexer",
+  "schedule": { "kind": "cron", "expr": "15 6 * * *", "tz": "UTC" },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Run: bash ~/.openclaw/workspace/skills/qdrant-rag/scripts/nightly-index.sh\nReport what was indexed.",
+    "timeoutSeconds": 120
+  },
+  "delivery": { "mode": "none" }
+}
+```
+
+### 2. Summarization Worker
+
+Processes pending session summaries (validates, embeds, updates state). Runs after the indexer.
+
+```json
+{
+  "name": "RAG Summarization Worker",
+  "schedule": { "kind": "cron", "expr": "20 6 * * *", "tz": "UTC" },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Run: node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs --batch 3\nReport the output.",
+    "timeoutSeconds": 300
+  },
+  "delivery": { "mode": "none" }
+}
+```
+
+> **Note:** The indexer should run first; the summarization worker runs ~5 minutes later to process anything the indexer found.
+
+---
+
 ## Known Issues
 
 - ⚠️ **Do NOT symlink the plugin directory.** OpenClaw's plugin scanner uses `isDirectory()` on the resolved path, which returns `false` for symlinks. Copy with `cp -r` instead.
