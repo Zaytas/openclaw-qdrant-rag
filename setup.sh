@@ -171,12 +171,26 @@ if [ -d "$SKILL_DEST" ]; then
 fi
 
 # Copy skill files (preserve any existing config file)
+# Then remove runtime/state files that should NOT be distributed:
+#   - index-state.json, transcript-state.json, summary-state.json, pending-summaries.json
+#   - qdrant-rag.config.json (user-specific; only the example is copied in Step 4)
+#   - *.log files
+#   - summaries/ directory (generated output)
 if [ -f "$SKILL_DEST/qdrant-rag.config.json" ]; then
   SAVED_CONFIG=$(mktemp)
   cp "$SKILL_DEST/qdrant-rag.config.json" "$SAVED_CONFIG"
 fi
 
 cp -r "$SKILL_SRC"/. "$SKILL_DEST"/
+
+# Remove runtime garbage that should not be copied from the source tree
+rm -f "$SKILL_DEST/index-state.json" \
+      "$SKILL_DEST/transcript-state.json" \
+      "$SKILL_DEST/summary-state.json" \
+      "$SKILL_DEST/pending-summaries.json" \
+      "$SKILL_DEST/qdrant-rag.config.json"
+find "$SKILL_DEST" -name '*.log' -delete 2>/dev/null || true
+rm -rf "$SKILL_DEST/summaries/" 2>/dev/null || true
 
 if [ -n "${SAVED_CONFIG:-}" ] && [ -f "${SAVED_CONFIG:-}" ]; then
   mv "$SAVED_CONFIG" "$SKILL_DEST/qdrant-rag.config.json"

@@ -14,6 +14,7 @@
  */
 
 import { init, SKILL_DIR } from '../lib/core.mjs';
+import { cleanupStalePoints } from '../lib/cleanup.mjs';
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import {
@@ -35,7 +36,8 @@ Index OpenClaw session transcripts (.jsonl) into Qdrant.
 
 Options:
   --full       Full reindex (ignore incremental state)
-  --dry-run    Preview what would be indexed without changes
+  --cleanup    After indexing, delete stale/orphaned points
+  --dry-run    Preview what would be indexed (and cleaned) without changes
   --config F   Path to config file
   --help       Show this help
 
@@ -49,6 +51,7 @@ function parseCliArgs() {
   const { values } = parseArgs({
     options: {
       full: { type: 'boolean' },
+      cleanup: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       config: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
@@ -62,6 +65,7 @@ function parseCliArgs() {
 
   return {
     full: values.full || false,
+    cleanup: values.cleanup || false,
     dryRun: values['dry-run'] || false,
     configPath: values.config || undefined,
   };
@@ -308,6 +312,7 @@ async function main() {
 
   console.log('=== Index Transcripts ===');
   console.log(`Mode: ${args.full ? 'FULL reindex' : 'incremental'}`);
+  if (args.cleanup) console.log('CLEANUP — will remove stale points after indexing');
   if (args.dryRun) console.log('DRY RUN — no changes will be made');
   console.log('');
 
@@ -366,7 +371,23 @@ async function main() {
     const fp = fileFingerprint(t.filePath);
     newState[key] = fp;
 
-    if (!args.full && state[key] === fp) continue;
+    if (!args.full && state[key] === fp) {
+      // Unchanged — but if cleanup is enabled, compute expected point IDs
+      if (args.cleanup) {
+        try {
+          const messages = await parseTranscript(t.filePath);
+          if (messages.length > 0) {
+            const chunks = chunkMessages(messages, chunkSize, Math.min(3, Math.floor(messages.length * 0.1)));
+            for (let i = 0; i < chunks.length; i++) {
+              upsertedIds.add(generatePointId(t.agentId, t.sessionId, i));
+            }
+          }
+        } catch {
+          // Skip — points may get cleaned if we can't read
+        }
+      }
+      continue;
+    }
     toIndex.push(t);
   }
 
@@ -383,6 +404,7 @@ async function main() {
   let totalChunks = 0;
   let totalPoints = 0;
   let errors = 0;
+  const upsertedIds = new Set();
 
   for (const { filePath, agentId, sessionId } of toIndex) {
     let messages;
@@ -403,6 +425,9 @@ async function main() {
 
     if (args.dryRun) {
       console.log(`  [dry-run] ${agentId}/${sessionId}: ${messages.length} msgs → ${chunks.length} chunks`);
+      for (let i = 0; i < chunks.length; i++) {
+        upsertedIds.add(generatePointId(agentId, sessionId, i));
+      }
       continue;
     }
 
@@ -420,23 +445,27 @@ async function main() {
       try {
         const vectors = await embedder.embedBatch(texts, 'RETRIEVAL_DOCUMENT');
 
-        const points = batch.map((chunk, i) => ({
-          id: generatePointId(agentId, sessionId, batchStart + i),
-          vector: vectors[i],
-          payload: {
-            sourceType: 'transcript',
-            agentId,
-            sessionId,
-            channel,
-            text: chunk.text,
-            byteStart: chunk.byteStart,
-            byteEnd: chunk.byteEnd,
-            messageCount: chunk.messageCount,
-            timestampStart: chunk.timestampStart,
-            timestampEnd: chunk.timestampEnd,
-            indexedAt: new Date().toISOString(),
-          },
-        }));
+        const points = batch.map((chunk, i) => {
+          const id = generatePointId(agentId, sessionId, batchStart + i);
+          upsertedIds.add(id);
+          return {
+            id,
+            vector: vectors[i],
+            payload: {
+              sourceType: 'transcript',
+              agentId,
+              sessionId,
+              channel,
+              text: chunk.text,
+              byteStart: chunk.byteStart,
+              byteEnd: chunk.byteEnd,
+              messageCount: chunk.messageCount,
+              timestampStart: chunk.timestampStart,
+              timestampEnd: chunk.timestampEnd,
+              indexedAt: new Date().toISOString(),
+            },
+          };
+        });
 
         await qdrant.upsertPoints(points);
         totalPoints += points.length;
@@ -450,6 +479,26 @@ async function main() {
   // Save state
   if (!args.dryRun) {
     saveState(newState);
+  }
+
+  // Cleanup stale points
+  if (args.cleanup) {
+    try {
+      const cleanupResult = await cleanupStalePoints({
+        qdrantUrl: config.qdrantUrl,
+        collection: config.collection,
+        filter: { must: [{ key: 'sourceType', match: { value: 'transcript' } }] },
+        upsertedIds,
+        dryRun: args.dryRun,
+        label: 'transcript',
+      });
+      if (cleanupResult.deleted > 0 || cleanupResult.stale > 0) {
+        console.log(`Stale cleanup: ${cleanupResult.stale} stale of ${cleanupResult.total} total`);
+      }
+    } catch (err) {
+      console.error(`Cleanup error: ${err.message}`);
+      errors++;
+    }
   }
 
   // Summary

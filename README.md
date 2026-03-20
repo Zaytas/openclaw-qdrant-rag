@@ -231,7 +231,9 @@ Located in `packages/skill/scripts/`:
 | `nightly-index.sh` | Cron orchestrator — runs memory + transcript indexing |
 | `debug-recall.mjs` | Verbose recall with scoring breakdown for debugging |
 
-### Stubs (Phase 2)
+### ⚠️ Not Yet Implemented (Phase 2 — Coming Soon)
+
+These scripts exist as stubs but are **not functional**. Do not schedule them in cron.
 
 | Script | Planned Purpose |
 |--------|----------------|
@@ -268,7 +270,12 @@ Example OpenClaw cron job (via `/cron add` or the cron API):
 }
 ```
 
-### 2. Summarization Worker
+### 2. Summarization Worker — ⚠️ Not Yet Implemented
+
+> **This cron job is non-functional.** The summarization pipeline is Phase 2 and has not been built. Do not enable this cron job until the pipeline is implemented.
+
+<details>
+<summary>Planned cron config (for reference only)</summary>
 
 Processes pending session summaries (validates, embeds, updates state). Runs after the indexer.
 
@@ -285,8 +292,7 @@ Processes pending session summaries (validates, embeds, updates state). Runs aft
   "delivery": { "mode": "none" }
 }
 ```
-
-> **Note:** The indexer should run first; the summarization worker runs ~5 minutes later to process anything the indexer found.
+</details>
 
 ---
 

@@ -14,6 +14,7 @@
  */
 
 import { init, SKILL_DIR } from '../lib/core.mjs';
+import { cleanupStalePoints } from '../lib/cleanup.mjs';
 import { parseArgs } from 'node:util';
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, relative, extname, resolve } from 'node:path';
@@ -30,7 +31,8 @@ Index workspace markdown files into Qdrant for vector search.
 
 Options:
   --full       Full reindex (ignore incremental state)
-  --dry-run    Preview what would be indexed without making changes
+  --cleanup    After indexing, delete stale/orphaned points
+  --dry-run    Preview what would be indexed (and cleaned) without changes
   --config F   Path to config file
   --help       Show this help
 
@@ -44,6 +46,7 @@ function parseCliArgs() {
   const { values } = parseArgs({
     options: {
       full: { type: 'boolean' },
+      cleanup: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       config: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
@@ -57,6 +60,7 @@ function parseCliArgs() {
 
   return {
     full: values.full || false,
+    cleanup: values.cleanup || false,
     dryRun: values['dry-run'] || false,
     configPath: values.config || undefined,
   };
@@ -232,6 +236,7 @@ async function main() {
 
   console.log('=== Index Workspace Files ===');
   console.log(`Mode: ${args.full ? 'FULL reindex' : 'incremental'}`);
+  if (args.cleanup) console.log('CLEANUP — will remove stale points after indexing');
   if (args.dryRun) console.log('DRY RUN — no changes will be made');
   console.log('');
 
@@ -303,6 +308,18 @@ async function main() {
     newState[relPath] = fp;
 
     if (!args.full && state[relPath] === fp) {
+      // Unchanged — but if cleanup is enabled, we still need to know these point IDs
+      if (args.cleanup) {
+        try {
+          const content = readFileSync(filePath, 'utf-8');
+          const chunks = chunkText(content, chunkSize, chunkOverlap);
+          for (let i = 0; i < chunks.length; i++) {
+            upsertedIds.add(generatePointId(relPath, i));
+          }
+        } catch {
+          // If we can't read, we'll just skip — those points may get cleaned
+        }
+      }
       continue; // Unchanged
     }
     toIndex.push({ filePath, relPath });
@@ -321,6 +338,7 @@ async function main() {
   let totalChunks = 0;
   let totalPoints = 0;
   let errors = 0;
+  const upsertedIds = new Set();
 
   for (const { filePath, relPath } of toIndex) {
     let content;
@@ -337,6 +355,9 @@ async function main() {
 
     if (args.dryRun) {
       console.log(`  [dry-run] ${relPath}: ${chunks.length} chunk(s)`);
+      for (let i = 0; i < chunks.length; i++) {
+        upsertedIds.add(generatePointId(relPath, i));
+      }
       continue;
     }
 
@@ -350,18 +371,22 @@ async function main() {
       try {
         const vectors = await embedder.embedBatch(texts, 'RETRIEVAL_DOCUMENT');
 
-        const points = batch.map((chunk, i) => ({
-          id: generatePointId(relPath, batchStart + i),
-          vector: vectors[i],
-          payload: {
-            sourceType: 'file',
-            fileName: relPath,
-            text: chunk.text,
-            startLine: chunk.startLine,
-            endLine: chunk.endLine,
-            indexedAt: new Date().toISOString(),
-          },
-        }));
+        const points = batch.map((chunk, i) => {
+          const id = generatePointId(relPath, batchStart + i);
+          upsertedIds.add(id);
+          return {
+            id,
+            vector: vectors[i],
+            payload: {
+              sourceType: 'file',
+              fileName: relPath,
+              text: chunk.text,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              indexedAt: new Date().toISOString(),
+            },
+          };
+        });
 
         await qdrant.upsertPoints(points);
         totalPoints += points.length;
@@ -375,6 +400,26 @@ async function main() {
   // Save state
   if (!args.dryRun) {
     saveState(newState);
+  }
+
+  // Cleanup stale points
+  if (args.cleanup) {
+    try {
+      const cleanupResult = await cleanupStalePoints({
+        qdrantUrl: config.qdrantUrl,
+        collection: config.collection,
+        filter: { must: [{ key: 'sourceType', match: { value: 'file' } }] },
+        upsertedIds,
+        dryRun: args.dryRun,
+        label: 'file',
+      });
+      if (cleanupResult.deleted > 0 || cleanupResult.stale > 0) {
+        console.log(`Stale cleanup: ${cleanupResult.stale} stale of ${cleanupResult.total} total`);
+      }
+    } catch (err) {
+      console.error(`Cleanup error: ${err.message}`);
+      errors++;
+    }
   }
 
   // Summary

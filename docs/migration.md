@@ -24,12 +24,12 @@ Your **Qdrant data** (the vector collection) does not need to be migrated if you
 ```bash
 # Create a backup of state files
 mkdir -p /tmp/rag-backup
-cp ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/index-state.json /tmp/rag-backup/ 2>/dev/null
-cp ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/transcript-state.json /tmp/rag-backup/ 2>/dev/null
-cp ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/summary-state.json /tmp/rag-backup/ 2>/dev/null
-cp ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/pending-summaries.json /tmp/rag-backup/ 2>/dev/null
-cp -r ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/summaries/ /tmp/rag-backup/ 2>/dev/null
-cp ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/qdrant-rag.config.json /tmp/rag-backup/ 2>/dev/null
+cp ~/.openclaw/workspace/skills/qdrant-rag/index-state.json /tmp/rag-backup/ 2>/dev/null
+cp ~/.openclaw/workspace/skills/qdrant-rag/transcript-state.json /tmp/rag-backup/ 2>/dev/null
+cp ~/.openclaw/workspace/skills/qdrant-rag/summary-state.json /tmp/rag-backup/ 2>/dev/null
+cp ~/.openclaw/workspace/skills/qdrant-rag/pending-summaries.json /tmp/rag-backup/ 2>/dev/null
+cp -r ~/.openclaw/workspace/skills/qdrant-rag/summaries/ /tmp/rag-backup/ 2>/dev/null
+cp ~/.openclaw/workspace/skills/qdrant-rag/qdrant-rag.config.json /tmp/rag-backup/ 2>/dev/null
 ```
 
 ### 2. Note your current plugin config
@@ -50,20 +50,21 @@ mv ~/.openclaw/workspace/skills/qdrant-rag ~/.openclaw/workspace/skills/qdrant-r
 ### 4. Install the new version
 
 ```bash
-git clone https://github.com/your-org/openclaw-qdrant-rag ~/.openclaw/workspace/skills/qdrant-rag
-cd ~/.openclaw/workspace/skills/qdrant-rag
+git clone https://github.com/Zaytas/openclaw-qdrant-rag ~/openclaw-qdrant-rag
+cd ~/openclaw-qdrant-rag
+cd ~/openclaw-qdrant-rag
 ./setup.sh
 ```
 
 ### 5. Restore state files
 
 ```bash
-cp /tmp/rag-backup/index-state.json ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
-cp /tmp/rag-backup/transcript-state.json ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
-cp /tmp/rag-backup/summary-state.json ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
-cp /tmp/rag-backup/pending-summaries.json ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
-cp -r /tmp/rag-backup/summaries/ ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
-cp /tmp/rag-backup/qdrant-rag.config.json ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/ 2>/dev/null
+cp /tmp/rag-backup/index-state.json ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
+cp /tmp/rag-backup/transcript-state.json ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
+cp /tmp/rag-backup/summary-state.json ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
+cp /tmp/rag-backup/pending-summaries.json ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
+cp -r /tmp/rag-backup/summaries/ ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
+cp /tmp/rag-backup/qdrant-rag.config.json ~/.openclaw/workspace/skills/qdrant-rag/ 2>/dev/null
 ```
 
 ### 6. Update openclaw.json plugin path
@@ -94,17 +95,17 @@ If you have cron jobs configured, update the script paths in `openclaw.json`:
     {
       "name": "rag-index-files",
       "schedule": "0 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/index-memory.mjs"
+      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs"
     },
     {
       "name": "rag-index-transcripts",
       "schedule": "10 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/index-transcripts.mjs"
+      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs"
     },
     {
       "name": "rag-summarize-sessions",
       "schedule": "20 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/summarize-worker.mjs"
+      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs"
     }
   ]
 }
@@ -131,7 +132,7 @@ Then check the gateway logs for RAG-related output.
 ### Check collection integrity
 
 ```bash
-node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/stats.mjs
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/stats.mjs
 ```
 
 Verify the point count matches what you had before migration. It should be the same since the Qdrant collection wasn't touched.
@@ -139,13 +140,13 @@ Verify the point count matches what you had before migration. It should be the s
 ### Test a search
 
 ```bash
-node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/search.mjs "test query about something you know was indexed"
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/search.mjs "test query about something you know was indexed"
 ```
 
 ### Run incremental indexing
 
 ```bash
-node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/index-memory.mjs
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs
 ```
 
 With state files restored, this should report "0 new files to index" (or only files changed since the last run).

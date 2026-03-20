@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+// ============================================================================
+// ⚠️  UNIMPLEMENTED / WIP — This script is a stub and does not function yet.
+//
+// The summarization pipeline (discover → prepare → validate → embed) has not
+// been built. The import below (`loadConfig`) also references a non-existent
+// export — rag-core exports `loadConfigOnly`, not `loadConfig`.
+//
+// Do NOT schedule this in cron or rely on it producing output.
+// See: https://github.com/Zaytas/openclaw-qdrant-rag — roadmap / Phase 2
+// ============================================================================
 import { loadConfig } from '../lib/core.mjs';
 
 function showHelp() {

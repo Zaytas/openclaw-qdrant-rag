@@ -26,9 +26,9 @@ All scripts are in `scripts/` relative to this skill directory.
 ### Indexing
 - `node scripts/index-memory.mjs [--full]` — Index workspace markdown files into Qdrant (incremental by default, --full for complete reindex)
 - `node scripts/index-transcripts.mjs [--full]` — Index session transcripts into Qdrant
-- `node scripts/summarize-worker.mjs [--batch N] [--dry-run] [--status]` — Process session summaries (discover → prepare → validate → embed)
-- `node scripts/generate-summaries.mjs` — Generate summaries for unsummarized sessions
-- `node scripts/embed-summaries.mjs [file...]` — Embed summary JSON files into Qdrant
+- `node scripts/summarize-worker.mjs` — ⚠️ **STUB / WIP** — Summarization pipeline not yet implemented
+- `node scripts/generate-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
+- `node scripts/embed-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
 
 ### Query & Debug
 - `node scripts/recall.mjs "query" [--limit N] [--json]` — Unified search (vector + grep)
@@ -36,8 +36,8 @@ All scripts are in `scripts/` relative to this skill directory.
 - `node scripts/debug-recall.mjs "message text"` — Show what auto-recall would inject for a given message
 
 ### Maintenance
-- `node scripts/find-unsummarized.mjs` — List sessions that haven't been summarized yet
-- `node scripts/validate-summaries.mjs` — Validate summary files for completeness
+- `node scripts/find-unsummarized.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
+- `node scripts/validate-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
 - `node scripts/nightly-index.sh` — Run the full nightly pipeline (index files → index transcripts → process summaries)
 
 ## Configuration

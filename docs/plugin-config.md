@@ -166,7 +166,7 @@ Diagnostic and logging options.
 ```json
 "debug": {
   "enabled": true,
-  "logFile": "~/.openclaw/workspace/skills/qdrant-rag/packages/skill/logs/rag-debug.log",
+  "logFile": "~/.openclaw/workspace/skills/qdrant-rag/scripts/logs/rag-debug.log",
   "includeScoresInContext": false,
   "dryRun": false
 }

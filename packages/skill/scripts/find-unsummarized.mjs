@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// ============================================================================
+// ⚠️  UNIMPLEMENTED / WIP — Part of the summarization pipeline (Phase 2).
+//     This script is a stub and does not function yet.
+// ============================================================================
 
 function showHelp() {
   console.log(`Usage: find-unsummarized [options]
