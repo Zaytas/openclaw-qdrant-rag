@@ -1,61 +1,59 @@
-# Cron Setup — Nightly Indexing Pipeline
+# Cron Setup — Periodic Indexing Pipeline
 
-The indexing pipeline keeps Qdrant up to date with your workspace files, session transcripts, and session summaries. It's designed to run nightly but can also be triggered manually.
+The indexing pipeline keeps Qdrant up to date with your workspace files and session transcripts. The recommended setup is a **single OpenClaw cron job** that runs **4x daily** and executes both indexers with `--limit 15`.
 
 ## What Runs
 
 | Script | Layer | What it does |
 |--------|-------|-------------|
-| `index-memory.mjs` | C (files) | Scans workspace files, chunks them, embeds and upserts into Qdrant. Tracks file hashes to skip unchanged files. |
-| `index-transcripts.mjs` | A (transcripts) | Scans session transcript files, chunks conversations, embeds and upserts. Tracks last-indexed position per session. |
-| `summarize-worker.mjs` | B (summaries) | ⚠️ **WIP / Not yet implemented.** Planned: identify sessions that need summarization, generate AI summaries, embed and upsert them. |
+| `index-memory.mjs --limit 15` | C (files) | Scans workspace files, chunks them, embeds and upserts into Qdrant. Tracks file hashes to skip unchanged files. `--limit 15` caps each run to at most 15 changed files. |
+| `index-transcripts.mjs --limit 15` | A (transcripts) | Scans session transcript files, chunks conversations, embeds and upserts. Tracks last-indexed position per session. `--limit 15` caps each run to at most 15 changed sessions. |
+| `summarize-worker.mjs` | B (summaries) | ⚠️ **WIP / Not yet implemented.** Keep the summary pipeline unscheduled for now. |
 
-Each script is **incremental** — it only processes new or changed content since the last run. State is tracked in JSON files in the skill directory.
+Each implemented script is **incremental** — it only processes new or changed content since the last run. State is tracked in JSON files in the skill directory.
 
-## OpenClaw Cron Configuration
+## Recommended OpenClaw Cron Configuration
 
-Add cron jobs to your `openclaw.json`:
+Use the OpenClaw cron API / `agentTurn` payload format:
 
 ```json
 {
-  "cron": [
-    {
-      "name": "rag-index-files",
-      "schedule": "0 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs",
-      "description": "Index workspace files into Qdrant"
-    },
-    {
-      "name": "rag-index-transcripts",
-      "schedule": "10 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs",
-      "description": "Index session transcripts into Qdrant"
-    },
-    {
-      "name": "rag-summarize-sessions",
-      "schedule": "20 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs",
-      "description": "Generate and index session summaries"
-    }
-  ]
+  "name": "Periodic RAG Indexer",
+  "schedule": { "kind": "cron", "expr": "15 */6 * * *", "tz": "UTC" },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Run: node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --limit 15 && node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --limit 15\nReport what was indexed.",
+    "timeoutSeconds": 180
+  },
+  "delivery": { "mode": "none" }
 }
 ```
 
-> **Note:** The schedules above use UTC times (05:00, 05:10, 05:20 UTC). Adjust to your preferred local time. The 10-minute gaps ensure scripts don't compete for resources.
+### Schedule Details
 
-### Recommended Schedule
+- Runs at **00:15, 06:15, 12:15, 18:15 UTC**
+- Uses **one cron job**, not separate per-script jobs
+- Uses `--limit 15` so each run stays bounded and incremental
+- Uses a **180 second** timeout to leave enough room for both indexers
 
-| Time (UTC) | Script | Duration (typical) |
-|------------|--------|--------------------|
-| 05:00 | `index-memory.mjs` | 1–5 minutes |
-| 05:10 | `index-transcripts.mjs` | 2–10 minutes |
-| 05:20 | `summarize-worker.mjs` | 5–15 minutes |
+## Why the single-job pattern?
 
-Summarization takes the longest because it calls an LLM to generate summaries. File and transcript indexing are primarily embedding calls.
+The older 3-job pattern is obsolete. One job is simpler to operate and keeps file + transcript indexing together in the same maintenance pass. With `--limit 15`, it also avoids long catch-up runs while still making steady progress throughout the day.
+
+## Summary pipeline status
+
+Summary pipeline scripts remain **WIP stubs**. Keep those warnings intact and **do not schedule** any summary cron yet. In particular, do not add cron jobs for:
+
+- `summarize-worker.mjs`
+- `generate-summaries.mjs`
+- `embed-summaries.mjs`
+- `find-unsummarized.mjs`
+- `validate-summaries.mjs`
 
 ## Environment
 
-The cron jobs need access to the `GEMINI_API_KEY` environment variable. Ensure it's set in the OpenClaw environment or in a `.env` file that OpenClaw loads.
+The cron job needs access to the `GEMINI_API_KEY` environment variable. Ensure it's set in the OpenClaw environment or in a `.env` file that OpenClaw loads.
 
 If using Qdrant Cloud or an authenticated instance, also set the Qdrant API key in your plugin config or environment.
 
@@ -71,9 +69,6 @@ cat ~/.openclaw/workspace/skills/qdrant-rag/index-state.json
 
 # Last transcript indexing run
 cat ~/.openclaw/workspace/skills/qdrant-rag/transcript-state.json
-
-# Last summarization run
-cat ~/.openclaw/workspace/skills/qdrant-rag/summary-state.json
 ```
 
 ### Check Qdrant collection stats
@@ -89,25 +84,24 @@ This shows the total point count and index status. Compare before and after a pi
 If you've configured a log directory:
 
 ```bash
-ls -la ~/.openclaw/workspace/skills/qdrant-rag/scripts/logs/
+ls -la ~/.openclaw/workspace/skills/qdrant-rag/logs/
 ```
 
-Each script writes a log entry with the number of chunks processed, skipped, and any errors.
+Each implemented script writes a log entry with the number of chunks processed, skipped, and any errors.
 
 ## Manual Run
 
-Run any script directly:
+Run the same commands directly:
 
 ```bash
-# Index workspace files
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs
+# Index workspace files (bounded incremental run)
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --limit 15
 
-# Index transcripts
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs
-
-# Summarize sessions
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs
+# Index transcripts (bounded incremental run)
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --limit 15
 ```
+
+For a full catch-up or maintenance run, omit `--limit` or use `--full` as needed.
 
 ### Force re-indexing
 
@@ -122,26 +116,8 @@ rm ~/.openclaw/workspace/skills/qdrant-rag/transcript-state.json
 node ~/.openclaw/workspace/skills/qdrant-rag/scripts/reset-collection.mjs
 
 # Run indexing
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs
-node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --full
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --full
 ```
 
 > ⚠️ `reset-collection.mjs` deletes all data in the Qdrant collection. Only use this when you want a full rebuild.
-
-## System Crontab (Alternative)
-
-If you prefer using the system crontab instead of OpenClaw's built-in cron:
-
-```bash
-crontab -e
-```
-
-```cron
-# Qdrant RAG nightly indexing
-0 5 * * * GEMINI_API_KEY=your-key node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs >> /tmp/rag-index.log 2>&1
-10 5 * * * GEMINI_API_KEY=your-key node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs >> /tmp/rag-index.log 2>&1
-20 5 * * * GEMINI_API_KEY=your-key node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs >> /tmp/rag-index.log 2>&1
-```
-
-Replace `your-key` with your actual Gemini API key or source it from an env file.

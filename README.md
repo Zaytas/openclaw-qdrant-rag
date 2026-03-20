@@ -17,14 +17,14 @@ Three-package monorepo:
 packages/
 ├── rag-core/    Shared library — config, Qdrant client, embedder, retriever, ranker, formatter
 ├── plugin/      Enforcement layer — hooks before_prompt_build, pre-gates messages, injects context
-└── skill/       Maintenance — indexing scripts, nightly cron, manual query/debug tools
+└── skill/       Maintenance — indexing scripts, periodic cron, manual query/debug tools
 ```
 
 **`rag-core`** handles all Qdrant communication, embedding via Gemini, result ranking with source weights, and token-aware context formatting. Both the plugin and skill depend on it.
 
 **`plugin`** is the enforcement layer. It registers a `before_prompt_build` hook that runs on every qualifying inbound message — embedding the query, retrieving from Qdrant, ranking results, and injecting formatted context into the system prompt. A deterministic pre-gate filters out trivial messages before any embedding call.
 
-**`skill`** provides indexing scripts, a nightly cron orchestrator, and debug/query tools for manual maintenance.
+**`skill`** provides indexing scripts, a periodic cron helper, and debug/query tools for manual maintenance.
 
 ---
 
@@ -226,9 +226,9 @@ Located in `packages/skill/scripts/`:
 | Script | Purpose |
 |--------|---------|
 | `recall.mjs` | Query Qdrant and display ranked results — the same pipeline the plugin uses |
-| `index-memory.mjs` | Index markdown files from workspace into Qdrant |
-| `index-transcripts.mjs` | Index session transcripts into Qdrant |
-| `nightly-index.sh` | Cron orchestrator — runs memory + transcript indexing |
+| `index-memory.mjs` | Index markdown files from workspace into Qdrant (`--limit N` supported for bounded incremental runs) |
+| `index-transcripts.mjs` | Index session transcripts into Qdrant (`--limit N` supported for bounded incremental runs) |
+| `nightly-index.sh` | Helper script — runs memory + transcript indexing (manual/legacy use; recommended cron calls both indexers directly) |
 | `debug-recall.mjs` | Verbose recall with scoring breakdown for debugging |
 
 ### ⚠️ Not Yet Implemented (Phase 2 — Coming Soon)
@@ -248,51 +248,37 @@ These scripts exist as stubs but are **not functional**. Do not schedule them in
 
 ## Scheduled Indexing (Cron)
 
-The plugin handles auto-recall (query-time). But you need to periodically index new content into Qdrant. Set up two OpenClaw cron jobs:
+The plugin handles auto-recall (query-time). But you still need to **periodically** index new content into Qdrant. The recommended setup is a **single OpenClaw cron job** that runs **4x daily** and calls both indexers with `--limit 15` so each run stays bounded and catches up incrementally over time.
 
-### 1. Nightly Indexer
+### Recommended periodic indexer
 
-Runs the indexing pipeline (workspace files + transcripts). Recommended: daily.
+Runs at **00:15, 06:15, 12:15, and 18:15 UTC**.
 
 Example OpenClaw cron job (via `/cron add` or the cron API):
 
 ```json
 {
-  "name": "Nightly RAG Indexer",
-  "schedule": { "kind": "cron", "expr": "15 6 * * *", "tz": "UTC" },
+  "name": "Periodic RAG Indexer",
+  "schedule": { "kind": "cron", "expr": "15 */6 * * *", "tz": "UTC" },
   "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
-    "message": "Run: bash ~/.openclaw/workspace/skills/qdrant-rag/scripts/nightly-index.sh\nReport what was indexed.",
-    "timeoutSeconds": 120
+    "message": "Run: node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --limit 15 && node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --limit 15\nReport what was indexed.",
+    "timeoutSeconds": 180
   },
   "delivery": { "mode": "none" }
 }
 ```
 
-### 2. Summarization Worker — ⚠️ Not Yet Implemented
+### Why `--limit 15`?
 
-> **This cron job is non-functional.** The summarization pipeline is Phase 2 and has not been built. Do not enable this cron job until the pipeline is implemented.
+- Keeps each cron run bounded so it doesn't try to process an unbounded backlog in one turn
+- Works well for steady-state maintenance when new files or transcripts arrive throughout the day
+- Lets you run more frequently without needing a long timeout window
 
-<details>
-<summary>Planned cron config (for reference only)</summary>
+### Summarization pipeline status
 
-Processes pending session summaries (validates, embeds, updates state). Runs after the indexer.
-
-```json
-{
-  "name": "RAG Summarization Worker",
-  "schedule": { "kind": "cron", "expr": "20 6 * * *", "tz": "UTC" },
-  "sessionTarget": "isolated",
-  "payload": {
-    "kind": "agentTurn",
-    "message": "Run: node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs --batch 3\nReport the output.",
-    "timeoutSeconds": 300
-  },
-  "delivery": { "mode": "none" }
-}
-```
-</details>
+Summary-generation scripts are still **WIP stubs**. Keep the existing warnings in mind and **do not schedule** `summarize-worker.mjs`, `generate-summaries.mjs`, or related summary pipeline scripts in cron yet.
 
 ---
 

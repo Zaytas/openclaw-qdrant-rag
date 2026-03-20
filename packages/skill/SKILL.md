@@ -5,7 +5,7 @@ RAG memory pipeline using Qdrant vector database and Gemini embeddings. Indexes 
 ## When to Use
 - Indexing workspace content into vectors
 - Searching memory via RAG (manual queries beyond auto-recall)
-- Running the nightly indexing pipeline
+- Running the periodic indexing pipeline
 - Managing session summaries
 - Debugging or inspecting the memory index
 - Querying the Qdrant memory collection directly
@@ -24,9 +24,9 @@ RAG memory pipeline using Qdrant vector database and Gemini embeddings. Indexes 
 All scripts are in `scripts/` relative to this skill directory.
 
 ### Indexing
-- `node scripts/index-memory.mjs [--full]` — Index workspace markdown files into Qdrant (incremental by default, --full for complete reindex)
-- `node scripts/index-transcripts.mjs [--full]` — Index session transcripts into Qdrant
-- `node scripts/summarize-worker.mjs` — ⚠️ **STUB / WIP** — Summarization pipeline not yet implemented
+- `node scripts/index-memory.mjs [--full] [--limit N]` — Index workspace markdown files into Qdrant (incremental by default; `--limit N` caps how many changed files are processed in one run)
+- `node scripts/index-transcripts.mjs [--full] [--limit N]` — Index session transcripts into Qdrant (`--limit N` caps how many changed sessions are processed in one run)
+- `node scripts/summarize-worker.mjs` — ⚠️ **STUB / WIP** — Summarization pipeline not yet implemented; do not schedule in cron
 - `node scripts/generate-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
 - `node scripts/embed-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
 
@@ -38,7 +38,18 @@ All scripts are in `scripts/` relative to this skill directory.
 ### Maintenance
 - `node scripts/find-unsummarized.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
 - `node scripts/validate-summaries.mjs` — ⚠️ **STUB / WIP** — Not yet implemented
-- `node scripts/nightly-index.sh` — Run the full nightly pipeline (index files → index transcripts → process summaries)
+- `node scripts/nightly-index.sh` — Helper script that runs file + transcript indexing; useful for manual runs, but the recommended cron setup calls both indexers directly
+
+## Recommended Cron Pattern
+
+Use one OpenClaw cron job that runs **4x daily** (`15 */6 * * *`) and executes:
+
+```bash
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --limit 15
+node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --limit 15
+```
+
+Recommended timeout: **180 seconds**.
 
 ## Configuration
 Config file: `qdrant-rag.config.json` in this directory (optional — defaults work for most setups).

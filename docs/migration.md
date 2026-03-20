@@ -85,31 +85,27 @@ If the plugin path in your `openclaw.json` changed, update it:
 }
 ```
 
-### 7. Update cron job paths
+### 7. Update cron job configuration
 
-If you have cron jobs configured, update the script paths in `openclaw.json`:
+If you have cron jobs configured, replace the older once-daily / multi-job setup with the current **single periodic indexer**. Remove any separate summarization cron job — summary pipeline scripts are still WIP stubs and should remain unscheduled.
+
+Use an OpenClaw cron entry like this:
 
 ```json
 {
-  "cron": [
-    {
-      "name": "rag-index-files",
-      "schedule": "0 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs"
-    },
-    {
-      "name": "rag-index-transcripts",
-      "schedule": "10 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs"
-    },
-    {
-      "name": "rag-summarize-sessions",
-      "schedule": "20 5 * * *",
-      "command": "node ~/.openclaw/workspace/skills/qdrant-rag/scripts/summarize-worker.mjs"
-    }
-  ]
+  "name": "Periodic RAG Indexer",
+  "schedule": { "kind": "cron", "expr": "15 */6 * * *", "tz": "UTC" },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Run: node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-memory.mjs --limit 15 && node ~/.openclaw/workspace/skills/qdrant-rag/scripts/index-transcripts.mjs --limit 15\nReport what was indexed.",
+    "timeoutSeconds": 180
+  },
+  "delivery": { "mode": "none" }
 }
 ```
+
+This runs at **00:15, 06:15, 12:15, and 18:15 UTC** and keeps each pass bounded with `--limit 15`.
 
 ### 8. Restart OpenClaw gateway
 
