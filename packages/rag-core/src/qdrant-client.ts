@@ -46,11 +46,13 @@ export interface SearchOptions {
 export class QdrantClient {
   private readonly url: string;
   private readonly collection: string;
+  private readonly timeoutMs: number;
 
-  constructor(url: string, collection: string) {
+  constructor(url: string, collection: string, timeoutMs: number = 5000) {
     // Strip trailing slash
     this.url = url.replace(/\/+$/, '');
     this.collection = collection;
+    this.timeoutMs = timeoutMs;
   }
 
   /**
@@ -180,39 +182,63 @@ export class QdrantClient {
   // -------------------------------------------------------------------------
 
   private async get(path: string): Promise<Response> {
-    return fetch(`${this.url}${path}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      return await fetch(`${this.url}${path}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async post(path: string, body: unknown): Promise<Response> {
-    const response = await fetch(`${this.url}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => 'unknown');
-      throw new Error(`Qdrant POST ${path} failed (${response.status}): ${text.slice(0, 500)}`);
+    try {
+      const response = await fetch(`${this.url}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => 'unknown');
+        throw new Error(`Qdrant POST ${path} failed (${response.status}): ${text.slice(0, 500)}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return response;
   }
 
   private async put(path: string, body: unknown): Promise<Response> {
-    const response = await fetch(`${this.url}${path}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => 'unknown');
-      throw new Error(`Qdrant PUT ${path} failed (${response.status}): ${text.slice(0, 500)}`);
+    try {
+      const response = await fetch(`${this.url}${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => 'unknown');
+        throw new Error(`Qdrant PUT ${path} failed (${response.status}): ${text.slice(0, 500)}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return response;
   }
 }

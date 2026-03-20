@@ -21,9 +21,12 @@ export declare class Embedder {
     private static readonly BASE_URL;
     private static readonly MAX_BACKOFF_MS;
     private static readonly MAX_RETRIES;
+    /** Per-request timeout for fetch calls. */
+    private readonly requestTimeoutMs;
     constructor(apiKey: string, model?: string, dimensions?: number, options?: {
         maxCacheSize?: number;
         cacheTtlMs?: number;
+        requestTimeoutMs?: number;
     });
     /**
      * Embed a single text string.

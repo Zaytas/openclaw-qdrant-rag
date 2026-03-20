@@ -16,6 +16,7 @@
     "clean": "rm -rf packages/rag-core/dist packages/plugin/dist"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "typescript": "5.5"
   }
 }

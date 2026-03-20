@@ -8,6 +8,7 @@
  *
  * Follows the OpenClaw plugin pattern: export default register(api).
  */
+// retrieve and formatForInjection are loaded dynamically from rag-core at init time
 import { shouldRetrieve } from './pre-gate.js';
 import { createLogger } from './debug.js';
 // ---------------------------------------------------------------------------
@@ -110,54 +111,14 @@ function extractSessionMeta(ctx) {
     const isSubagent = keyOrId.includes(':subagent:');
     return { isSubagent, sessionKey };
 }
-// ---------------------------------------------------------------------------
-// Rough token estimation (for budget enforcement)
-// ---------------------------------------------------------------------------
-/** Estimate token count from text (~4 chars per token). */
-function estimateTokens(text) {
-    return Math.ceil(text.length / 4);
-}
-// ---------------------------------------------------------------------------
-// Format results for injection into system context
-// ---------------------------------------------------------------------------
-/**
- * Format retrieved search results into a text block for system prompt injection.
- * Respects the token budget (soft cap: maxTokens, hard cap: hardCapTokens).
- */
-function formatForInjection(results, maxTokens, hardCapTokens) {
-    if (!results || results.length === 0)
-        return '';
-    const lines = [
-        '## Retrieved Context (auto-recall from Qdrant)',
-        '',
-    ];
-    let tokenCount = estimateTokens(lines.join('\n'));
-    for (const result of results) {
-        const header = `### [${result.confidence}] ${result.source}${result.channel ? ` (${result.channel})` : ''}`;
-        const body = result.snippet || result.fullText || '';
-        const entry = `${header}\n${body}\n`;
-        const entryTokens = estimateTokens(entry);
-        // Hard cap — never exceed
-        if (tokenCount + entryTokens > hardCapTokens) {
-            break;
-        }
-        lines.push(entry);
-        tokenCount += entryTokens;
-        // Soft cap — stop adding after this
-        if (tokenCount >= maxTokens) {
-            break;
-        }
-    }
-    if (lines.length <= 2)
-        return ''; // Only header, no results fit
-    return lines.join('\n').trim();
-}
 async function importCore() {
     const core = await import('@openclaw-qdrant-rag/core');
     return {
         loadConfig: core.loadConfig,
         Embedder: core.Embedder,
         QdrantClient: core.QdrantClient,
+        retrieve: core.retrieve,
+        formatForInjection: core.formatForInjection,
     };
 }
 // ---------------------------------------------------------------------------
@@ -188,6 +149,9 @@ export default function register(api) {
     let initFailed = false;
     let embedder = null;
     let qdrantClient = null;
+    let ragConfig = null;
+    let coreRetrieve = null;
+    let coreFormatForInjection = null;
     // Create logger immediately (only needs api + debug config)
     logger = createLogger(api, config.debug);
     /**
@@ -202,7 +166,10 @@ export default function register(api) {
         try {
             const core = await importCore();
             // Load shared RAG config (merges with plugin's configPath if provided)
-            const ragConfig = core.loadConfig(config.configPath);
+            ragConfig = core.loadConfig(config.configPath);
+            // Store core retrieval and formatting functions
+            coreRetrieve = core.retrieve;
+            coreFormatForInjection = core.formatForInjection;
             // Initialize embedder (created once, reused across calls)
             embedder = new core.Embedder(ragConfig.apiKey, ragConfig.embeddingModel, ragConfig.embeddingDimensions, { maxCacheSize: config.embedding.cacheMaxSize, cacheTtlMs: config.embedding.cacheTtlMs });
             // Initialize Qdrant client (created once, reused across calls)
@@ -243,49 +210,39 @@ export default function register(api) {
             }
             // Lazy-initialize core services
             const coreReady = await initializeCore();
-            if (!coreReady || !embedder || !qdrantClient) {
+            if (!coreReady || !embedder || !qdrantClient || !coreRetrieve || !coreFormatForInjection || !ragConfig) {
                 logger.logSkip('core not initialized — failing open');
                 return undefined;
             }
             logger.logQuery(message);
-            // d. Generate embedding and search Qdrant
-            const vector = await embedder.embed(message);
-            const results = await qdrantClient.search(vector, {
-                limit: config.autoRecall.maxResults,
-                scoreThreshold: config.autoRecall.minScore,
-                withPayload: true,
+            // d. Run full retrieval pipeline (embed + vector search + lexical fallback + rank)
+            const { results, fallbackUsed, warning } = await coreRetrieve(message, {
+                embedder,
+                qdrantClient,
+                config: ragConfig,
+                maxResults: config.autoRecall.maxResults,
             });
             if (!results || results.length === 0) {
                 logger.logSkip('no results above score threshold');
                 return undefined;
             }
-            // Map raw Qdrant results to SearchResult shape for formatting
-            const searchResults = results.map((r) => {
-                const p = r.payload || {};
-                const sourceType = (p.sourceType || p.source_type || 'file');
-                return {
-                    score: r.score,
-                    sourceType: sourceType,
-                    source: (p.fileName || p.file || p.sessionId || 'unknown'),
-                    channel: (p.channel || 'unknown'),
-                    snippet: (p.text || p.keyFacts || '').slice(0, 300),
-                    fullText: (p.text || p.keyFacts || ''),
-                    file: (p.fileName || p.file || undefined),
-                    startLine: (p.startLine || undefined),
-                    endLine: (p.endLine || undefined),
-                    timestamp: undefined,
-                    dualMatch: false,
-                    confidence: r.score >= 0.7 ? 'high' : r.score >= 0.5 ? 'medium' : 'low',
-                };
-            });
+            if (warning) {
+                logger.info(`retrieval warning: ${warning}`);
+            }
+            if (fallbackUsed) {
+                logger.info('lexical fallback was used');
+            }
             // e. Format results for injection (respecting token budget)
-            const formatted = formatForInjection(searchResults, config.autoRecall.maxTokens, config.autoRecall.hardCapTokens);
+            const formatted = coreFormatForInjection(results, {
+                maxTokens: config.autoRecall.maxTokens,
+                hardCapTokens: config.autoRecall.hardCapTokens,
+            });
             if (!formatted) {
                 logger.logSkip('formatted context was empty after token budgeting');
                 return undefined;
             }
             // f. Log injection if debug enabled
-            logger.logInjection(formatted, searchResults.length);
+            logger.logInjection(formatted, results.length);
             // g. Return context for system prompt injection
             return { appendSystemContext: formatted };
         }

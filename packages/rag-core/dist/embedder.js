@@ -24,12 +24,15 @@ export class Embedder {
     static BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
     static MAX_BACKOFF_MS = 60_000;
     static MAX_RETRIES = 3;
+    /** Per-request timeout for fetch calls. */
+    requestTimeoutMs;
     constructor(apiKey, model = 'models/gemini-embedding-001', dimensions = 3072, options) {
         this.apiKey = apiKey;
         this.model = model;
         this.dimensions = dimensions;
         this.maxCacheSize = options?.maxCacheSize ?? 100;
         this.cacheTtlMs = options?.cacheTtlMs ?? 5 * 60 * 1000; // 5 minutes
+        this.requestTimeoutMs = options?.requestTimeoutMs ?? 15_000;
     }
     // -------------------------------------------------------------------------
     // Public API
@@ -117,12 +120,16 @@ export class Embedder {
         for (let attempt = 0; attempt <= Embedder.MAX_RETRIES; attempt++) {
             // Respect backoff from previous 429
             await this.waitForBackoff();
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
             try {
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
+                    signal: controller.signal,
                 });
+                clearTimeout(timer);
                 if (response.ok) {
                     this.backoffMs = 0; // Reset on success
                     return response;
@@ -138,8 +145,15 @@ export class Embedder {
                 throw new Error(`Embedding API error ${response.status}: ${errorText.slice(0, 500)}`);
             }
             catch (err) {
+                clearTimeout(timer);
                 if (err instanceof Error && err.message.startsWith('Embedding API error')) {
                     throw err; // Don't retry non-429 API errors
+                }
+                // Timeout aborts get a clear error message and retry
+                if (err instanceof Error && err.name === 'AbortError') {
+                    lastError = new Error(`Embedding request timed out after ${this.requestTimeoutMs}ms`);
+                    this.applyBackoff(null);
+                    continue;
                 }
                 lastError = err instanceof Error ? err : new Error(String(err));
                 // Network error — apply backoff and retry

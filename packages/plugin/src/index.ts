@@ -23,6 +23,7 @@ import type {
 // These are resolved at runtime from the sibling rag-core package.
 // In the monorepo, rag-core must be built first (dist/ populated).
 import type { RagConfig, SearchResult } from '@openclaw-qdrant-rag/core';
+// retrieve and formatForInjection are loaded dynamically from rag-core at init time
 
 import { shouldRetrieve } from './pre-gate.js';
 import { createLogger } from './debug.js';
@@ -152,62 +153,6 @@ function extractSessionMeta(ctx: Record<string, unknown>): SessionMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Rough token estimation (for budget enforcement)
-// ---------------------------------------------------------------------------
-
-/** Estimate token count from text (~4 chars per token). */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-// ---------------------------------------------------------------------------
-// Format results for injection into system context
-// ---------------------------------------------------------------------------
-
-/**
- * Format retrieved search results into a text block for system prompt injection.
- * Respects the token budget (soft cap: maxTokens, hard cap: hardCapTokens).
- */
-function formatForInjection(
-  results: SearchResult[],
-  maxTokens: number,
-  hardCapTokens: number,
-): string {
-  if (!results || results.length === 0) return '';
-
-  const lines: string[] = [
-    '## Retrieved Context (auto-recall from Qdrant)',
-    '',
-  ];
-
-  let tokenCount = estimateTokens(lines.join('\n'));
-
-  for (const result of results) {
-    const header = `### [${result.confidence}] ${result.source}${result.channel ? ` (${result.channel})` : ''}`;
-    const body = result.snippet || result.fullText || '';
-    const entry = `${header}\n${body}\n`;
-
-    const entryTokens = estimateTokens(entry);
-
-    // Hard cap — never exceed
-    if (tokenCount + entryTokens > hardCapTokens) {
-      break;
-    }
-
-    lines.push(entry);
-    tokenCount += entryTokens;
-
-    // Soft cap — stop adding after this
-    if (tokenCount >= maxTokens) {
-      break;
-    }
-  }
-
-  if (lines.length <= 2) return ''; // Only header, no results fit
-  return lines.join('\n').trim();
-}
-
-// ---------------------------------------------------------------------------
 // Dynamic core imports
 // ---------------------------------------------------------------------------
 
@@ -235,6 +180,11 @@ interface CoreModules {
     search(vector: number[], options: { limit: number; scoreThreshold?: number; withPayload?: boolean }): Promise<Array<{ score: number; payload?: Record<string, unknown> }>>;
     healthCheck(): Promise<boolean>;
   };
+  // retrieve and formatForInjection use rag-core's own Embedder/QdrantClient types,
+  // which are the actual class instances — we store them loosely typed to avoid
+  // duplicating the full class interface here.
+  retrieve: Function;
+  formatForInjection: Function;
 }
 
 async function importCore(): Promise<CoreModules> {
@@ -243,6 +193,8 @@ async function importCore(): Promise<CoreModules> {
     loadConfig: core.loadConfig,
     Embedder: core.Embedder,
     QdrantClient: core.QdrantClient,
+    retrieve: core.retrieve,
+    formatForInjection: core.formatForInjection,
   };
 }
 
@@ -280,6 +232,9 @@ export default function register(api: PluginApi): void {
   let qdrantClient: {
     search(vector: number[], options: { limit: number; scoreThreshold?: number; withPayload?: boolean }): Promise<Array<{ score: number; payload?: Record<string, unknown> }>>;
   } | null = null;
+  let ragConfig: RagConfig | null = null;
+  let coreRetrieve: Function | null = null;
+  let coreFormatForInjection: Function | null = null;
 
   // Create logger immediately (only needs api + debug config)
   logger = createLogger(api, config.debug);
@@ -296,7 +251,11 @@ export default function register(api: PluginApi): void {
       const core = await importCore();
 
       // Load shared RAG config (merges with plugin's configPath if provided)
-      const ragConfig = core.loadConfig(config.configPath);
+      ragConfig = core.loadConfig(config.configPath);
+
+      // Store core retrieval and formatting functions
+      coreRetrieve = core.retrieve;
+      coreFormatForInjection = core.formatForInjection;
 
       // Initialize embedder (created once, reused across calls)
       embedder = new core.Embedder(
@@ -358,19 +317,19 @@ export default function register(api: PluginApi): void {
 
       // Lazy-initialize core services
       const coreReady = await initializeCore();
-      if (!coreReady || !embedder || !qdrantClient) {
+      if (!coreReady || !embedder || !qdrantClient || !coreRetrieve || !coreFormatForInjection || !ragConfig) {
         logger.logSkip('core not initialized — failing open');
         return undefined;
       }
 
       logger.logQuery(message);
 
-      // d. Generate embedding and search Qdrant
-      const vector = await embedder.embed(message);
-      const results = await qdrantClient.search(vector, {
-        limit: config.autoRecall.maxResults,
-        scoreThreshold: config.autoRecall.minScore,
-        withPayload: true,
+      // d. Run full retrieval pipeline (embed + vector search + lexical fallback + rank)
+      const { results, fallbackUsed, warning } = await coreRetrieve(message, {
+        embedder,
+        qdrantClient,
+        config: ragConfig,
+        maxResults: config.autoRecall.maxResults,
       });
 
       if (!results || results.length === 0) {
@@ -378,32 +337,19 @@ export default function register(api: PluginApi): void {
         return undefined;
       }
 
-      // Map raw Qdrant results to SearchResult shape for formatting
-      const searchResults: SearchResult[] = results.map((r: { score: number; payload?: Record<string, unknown> }) => {
-        const p = r.payload || {};
-        const sourceType = (p.sourceType || p.source_type || 'file') as string;
-        return {
-          score: r.score,
-          sourceType: sourceType as 'file' | 'summary' | 'transcript',
-          source: (p.fileName || p.file || p.sessionId || 'unknown') as string,
-          channel: (p.channel || 'unknown') as string,
-          snippet: ((p.text || p.keyFacts || '') as string).slice(0, 300),
-          fullText: (p.text || p.keyFacts || '') as string,
-          file: (p.fileName || p.file || undefined) as string | undefined,
-          startLine: (p.startLine || undefined) as number | undefined,
-          endLine: (p.endLine || undefined) as number | undefined,
-          timestamp: undefined,
-          dualMatch: false,
-          confidence: r.score >= 0.7 ? 'high' as const : r.score >= 0.5 ? 'medium' as const : 'low' as const,
-        };
-      });
+      if (warning) {
+        logger.info(`retrieval warning: ${warning}`);
+      }
+
+      if (fallbackUsed) {
+        logger.info('lexical fallback was used');
+      }
 
       // e. Format results for injection (respecting token budget)
-      const formatted = formatForInjection(
-        searchResults,
-        config.autoRecall.maxTokens,
-        config.autoRecall.hardCapTokens,
-      );
+      const formatted = coreFormatForInjection(results, {
+        maxTokens: config.autoRecall.maxTokens,
+        hardCapTokens: config.autoRecall.hardCapTokens,
+      });
 
       if (!formatted) {
         logger.logSkip('formatted context was empty after token budgeting');
@@ -411,7 +357,7 @@ export default function register(api: PluginApi): void {
       }
 
       // f. Log injection if debug enabled
-      logger.logInjection(formatted, searchResults.length);
+      logger.logInjection(formatted, results.length);
 
       // g. Return context for system prompt injection
       return { appendSystemContext: formatted };

@@ -14,7 +14,8 @@ export interface SearchOptions {
 export declare class QdrantClient {
     private readonly url;
     private readonly collection;
-    constructor(url: string, collection: string);
+    private readonly timeoutMs;
+    constructor(url: string, collection: string, timeoutMs?: number);
     /**
      * Search for nearest vectors.
      */

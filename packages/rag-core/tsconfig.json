@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "typeRoots": ["/tmp/install/node_modules/@types", "node_modules/@types"],
+    "typeRoots": ["/tmp/node_modules/@types", "node_modules/@types"],
     "types": ["node"],
     "target": "ES2022",
     "module": "Node16",
