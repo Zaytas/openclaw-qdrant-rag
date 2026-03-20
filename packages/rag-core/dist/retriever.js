@@ -38,20 +38,38 @@ export async function retrieve(query, options) {
             withPayload: true,
             scoreThreshold: config.scoreThreshold * 0.8, // Slightly below threshold — ranker decides
         });
-        vectorResults = qdrantResults.map((r) => ({
-            score: r.score,
-            sourceType: r.payload?.['sourceType'] ?? 'file',
-            source: r.payload?.['source'] ?? 'unknown',
-            channel: r.payload?.['channel'],
-            snippet: truncateSnippet(r.payload?.['text'] ?? '', config.snippetLength),
-            fullText: r.payload?.['text'],
-            file: r.payload?.['file'],
-            startLine: r.payload?.['startLine'],
-            endLine: r.payload?.['endLine'],
-            timestamp: r.payload?.['timestamp'],
-            dualMatch: false,
-            confidence: 'low', // Will be recalculated by ranker
-        }));
+        vectorResults = qdrantResults.map((r) => {
+            const p = r.payload ?? {};
+            const sourceType = p['sourceType'] ?? 'file';
+            // Map from actual indexed payload fields:
+            //   File indexer writes: fileName, text, startLine, endLine, indexedAt
+            //   Transcript indexer writes: agentId, sessionId, channel, text,
+            //     timestampStart, timestampEnd, indexedAt
+            const fileName = (p['file'] ?? p['fileName']);
+            const sessionId = p['sessionId'];
+            // source: use fileName for files, sessionId for transcripts, fallback to 'unknown'
+            const source = p['source']
+                ?? fileName
+                ?? (sessionId ? `transcript:${sessionId}` : undefined)
+                ?? 'unknown';
+            // timestamp: prefer explicit timestamp, then timestampEnd (transcript),
+            // then indexedAt (both indexers write this)
+            const timestamp = (p['timestamp'] ?? p['timestampEnd'] ?? p['indexedAt']);
+            return {
+                score: r.score,
+                sourceType,
+                source,
+                channel: p['channel'],
+                snippet: truncateSnippet(p['text'] ?? '', config.snippetLength),
+                fullText: p['text'],
+                file: fileName,
+                startLine: p['startLine'],
+                endLine: p['endLine'],
+                timestamp,
+                dualMatch: false,
+                confidence: 'low', // Will be recalculated by ranker
+            };
+        });
     }
     catch (err) {
         fallbackUsed = true;

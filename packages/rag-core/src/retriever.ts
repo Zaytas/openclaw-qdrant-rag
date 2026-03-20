@@ -75,23 +75,45 @@ export async function retrieve(
       scoreThreshold: config.scoreThreshold * 0.8, // Slightly below threshold — ranker decides
     });
 
-    vectorResults = qdrantResults.map((r) => ({
-      score: r.score,
-      sourceType: (r.payload?.['sourceType'] as SourceType) ?? 'file',
-      source: (r.payload?.['source'] as string) ?? 'unknown',
-      channel: r.payload?.['channel'] as string | undefined,
-      snippet: truncateSnippet(
-        (r.payload?.['text'] as string) ?? '',
-        config.snippetLength,
-      ),
-      fullText: r.payload?.['text'] as string | undefined,
-      file: r.payload?.['file'] as string | undefined,
-      startLine: r.payload?.['startLine'] as number | undefined,
-      endLine: r.payload?.['endLine'] as number | undefined,
-      timestamp: r.payload?.['timestamp'] as string | undefined,
-      dualMatch: false,
-      confidence: 'low' as ConfidenceLabel, // Will be recalculated by ranker
-    }));
+    vectorResults = qdrantResults.map((r) => {
+      const p = r.payload ?? {};
+      const sourceType = (p['sourceType'] as SourceType) ?? 'file';
+
+      // Map from actual indexed payload fields:
+      //   File indexer writes: fileName, text, startLine, endLine, indexedAt
+      //   Transcript indexer writes: agentId, sessionId, channel, text,
+      //     timestampStart, timestampEnd, indexedAt
+      const fileName = (p['file'] ?? p['fileName']) as string | undefined;
+      const sessionId = p['sessionId'] as string | undefined;
+
+      // source: use fileName for files, sessionId for transcripts, fallback to 'unknown'
+      const source = (p['source'] as string)
+        ?? fileName
+        ?? (sessionId ? `transcript:${sessionId}` : undefined)
+        ?? 'unknown';
+
+      // timestamp: prefer explicit timestamp, then timestampEnd (transcript),
+      // then indexedAt (both indexers write this)
+      const timestamp = (p['timestamp'] ?? p['timestampEnd'] ?? p['indexedAt']) as string | undefined;
+
+      return {
+        score: r.score,
+        sourceType,
+        source,
+        channel: p['channel'] as string | undefined,
+        snippet: truncateSnippet(
+          (p['text'] as string) ?? '',
+          config.snippetLength,
+        ),
+        fullText: p['text'] as string | undefined,
+        file: fileName,
+        startLine: p['startLine'] as number | undefined,
+        endLine: p['endLine'] as number | undefined,
+        timestamp,
+        dualMatch: false,
+        confidence: 'low' as ConfidenceLabel, // Will be recalculated by ranker
+      };
+    });
   } catch (err) {
     fallbackUsed = true;
     warning = `Vector search failed: ${err instanceof Error ? err.message : String(err)}. Using lexical-only.`;
