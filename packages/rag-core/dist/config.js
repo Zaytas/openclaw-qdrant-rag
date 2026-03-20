@@ -24,8 +24,8 @@ const DEFAULT_AUTO_RECALL = {
     enabled: true,
     maxResults: 5,
     minScore: 0.4,
-    maxTokens: 2000,
-    hardCapTokens: 4000,
+    maxTokens: 1200,
+    hardCapTokens: 2000,
     skipSubagents: true,
     preGate: { ...DEFAULT_PRE_GATE },
 };

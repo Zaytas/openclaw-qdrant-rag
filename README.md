@@ -105,8 +105,8 @@ cp -rL node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/plugins/qdrant-
             "enabled": true,
             "maxResults": 6,
             "minScore": 0.4,
-            "maxTokens": 2000,
-            "hardCapTokens": 3000,
+            "maxTokens": 1200,
+            "hardCapTokens": 2000,
             "skipSubagents": true
           },
           "preGate": {
@@ -204,8 +204,8 @@ Full schema for the `plugins.entries.qdrant-rag.config` block in `openclaw.json`
 | `autoRecall.enabled` | boolean | `true` | Enable/disable auto-recall |
 | `autoRecall.maxResults` | integer | `6` | Max Qdrant results to retrieve (1–10) |
 | `autoRecall.minScore` | number | `0.4` | Minimum similarity score threshold (0–1) |
-| `autoRecall.maxTokens` | integer | `2000` | Soft cap on injected context tokens |
-| `autoRecall.hardCapTokens` | integer | `3000` | Hard cap — context is truncated here |
+| `autoRecall.maxTokens` | integer | `1200` | Soft cap on injected context tokens |
+| `autoRecall.hardCapTokens` | integer | `2000` | Hard cap — context is truncated here |
 | `autoRecall.skipSubagents` | boolean | `true` | Skip recall for subagent sessions |
 | `preGate.minMessageLength` | integer | `10` | Messages shorter than this skip recall |
 | `preGate.skipPatterns` | string[] | `["^\\s*$", ...]` | Regex patterns that skip recall |
@@ -287,6 +287,28 @@ Processes pending session summaries (validates, embeds, updates state). Runs aft
 ```
 
 > **Note:** The indexer should run first; the summarization worker runs ~5 minutes later to process anything the indexer found.
+
+---
+
+## Coexistence with Built-in Memory (memory-lancedb)
+
+OpenClaw includes a built-in memory system (lancedb-backed `memory_store`/`memory_recall` with auto-recall). This plugin is designed to **complement, not replace** that system.
+
+### Role Split
+- **Built-in memory (lancedb)**: Authoritative for structured personal memory — preferences, decisions, facts, entities, corrections
+- **Qdrant RAG (this plugin)**: Documentary recall — workspace files, daily notes, conversation transcripts, project docs
+
+### Design Principles
+- Both systems inject context independently into each prompt
+- Qdrant's token budget is kept conservative (1.2k default / 2k cap) since built-in auto-recall also injects
+- If you correct a fact via `memory_store`, that correction takes authority over any stale version in Qdrant-indexed content
+- The two systems index different corpora by design — avoid indexing files that simply mirror structured memories
+
+### When to Revisit
+This coexistence model works well when overlap is minimal. Consider revisiting if you observe:
+- Frequent duplicate context from both systems
+- Stale Qdrant content contradicting corrected memories
+- Noticeable prompt bloat or quality degradation
 
 ---
 

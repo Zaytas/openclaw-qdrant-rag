@@ -37,8 +37,8 @@ const DEFAULT_AUTO_RECALL: AutoRecallConfig = {
   enabled: true,
   maxResults: 6,
   minScore: 0.4,
-  maxTokens: 2000,
-  hardCapTokens: 3000,
+  maxTokens: 1200,
+  hardCapTokens: 2000,
   skipSubagents: true,
 };
 
