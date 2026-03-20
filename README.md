@@ -133,7 +133,16 @@ cp -r packages/skill/ ~/.openclaw/workspace/skills/qdrant-rag/
 
 > **Note:** `packages/skill/` may contain development state files. Only copy `scripts/`, `SKILL.md`, `config.mjs`, and the example config. Do not copy `.json` state files or `summaries/` — those are generated at runtime.
 
-**6. Copy and edit the config**
+**6. Copy the shared core into the skill's node_modules**
+
+```bash
+mkdir -p ~/.openclaw/workspace/skills/qdrant-rag/node_modules/@openclaw-qdrant-rag
+cp -rL node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/skills/qdrant-rag/node_modules/@openclaw-qdrant-rag/
+```
+
+> Without this, the skill's maintenance scripts cannot resolve `@openclaw-qdrant-rag/core` and will fail.
+
+**7. Copy and edit the config**
 
 ```bash
 cp packages/skill/qdrant-rag.config.example.json ~/.openclaw/workspace/skills/qdrant-rag/qdrant-rag.config.json
@@ -141,7 +150,7 @@ cp packages/skill/qdrant-rag.config.example.json ~/.openclaw/workspace/skills/qd
 
 Edit `qdrant-rag.config.json` — set your Qdrant URL, collection name, scan directories, and any source weights.
 
-**7. Set your API key**
+**8. Set your API key**
 
 ```bash
 export GEMINI_API_KEY="your-key-here"
@@ -149,7 +158,7 @@ export GEMINI_API_KEY="your-key-here"
 
 Add to your shell profile or OpenClaw's environment config for persistence.
 
-**8. Restart the gateway**
+**9. Restart the gateway**
 
 ```bash
 openclaw gateway restart

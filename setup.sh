@@ -182,6 +182,18 @@ if [ -n "${SAVED_CONFIG:-}" ] && [ -f "${SAVED_CONFIG:-}" ]; then
   mv "$SAVED_CONFIG" "$SKILL_DEST/qdrant-rag.config.json"
 fi
 
+# Copy the shared dependency into the skill's node_modules for dependency resolution.
+# Same approach as the plugin — dereference workspace symlinks with -rL.
+mkdir -p "$SKILL_DEST/node_modules/@openclaw-qdrant-rag"
+cp -rL "$ROOT_DIR/node_modules/@openclaw-qdrant-rag"/. "$SKILL_DEST/node_modules/@openclaw-qdrant-rag"/
+
+# Verify rag-core is resolvable from the installed skill
+if node -e "import('$SKILL_DEST/lib/core.mjs').then(() => console.log('skill core: OK'))" 2>/dev/null; then
+  color_echo "$green" "✓ rag-core dependency verified inside installed skill."
+else
+  color_echo "$red" "✗ rag-core not resolvable from installed skill. Scripts will not work."
+fi
+
 color_echo "$green" "✓ Skill installed at $SKILL_DEST"
 
 # Step 6: Optional - Start Qdrant via Docker
