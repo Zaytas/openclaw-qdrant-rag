@@ -300,6 +300,9 @@ async function main() {
   const state = args.full ? {} : loadState();
   const newState = {};
 
+  // Track all upserted/expected point IDs (needed for --cleanup)
+  const upsertedIds = new Set();
+
   // Filter to changed files
   const toIndex = [];
   for (const filePath of allFiles) {
@@ -338,7 +341,6 @@ async function main() {
   let totalChunks = 0;
   let totalPoints = 0;
   let errors = 0;
-  const upsertedIds = new Set();
 
   for (const { filePath, relPath } of toIndex) {
     let content;
