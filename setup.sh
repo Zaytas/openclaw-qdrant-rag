@@ -83,25 +83,85 @@ else
   color_echo "$green" "✓ Configuration file already exists. Skipping."
 fi
 
-# Step 5: Register the plugin
-color_echo "$green" "Step 5: Guiding plugin registration..."
-OPENCLAW_CONFIG="$OPENCLAW_HOME/openclaw.json"
+# Step 5: Install plugin
+# NOTE: We use cp -r, NOT symlinks. OpenClaw's plugin scanner uses fs.readdirSync
+# with withFileTypes:true, which reports symlinks as isDirectory()=false. Symlinked
+# plugin directories are silently skipped during discovery.
+color_echo "$green" "Step 5: Installing plugin to OpenClaw workspace..."
+PLUGIN_SRC="$ROOT_DIR/packages/plugin"
+PLUGIN_DEST="$OPENCLAW_HOME/workspace/plugins/qdrant-rag"
 
-if [ ! -f "$OPENCLAW_CONFIG" ]; then
-  color_echo "$yellow" "⚠ OpenClaw configuration file not found at $OPENCLAW_CONFIG."
-  color_echo "$yellow" "  If OpenClaw is installed elsewhere, set OPENCLAW_HOME and rerun."
+if [ -d "$PLUGIN_DEST" ]; then
+  BACKUP="$PLUGIN_DEST.bak.$(date +%s)"
+  color_echo "$yellow" "⚠ Existing plugin directory found. Backing up to $BACKUP"
+  mv "$PLUGIN_DEST" "$BACKUP"
+fi
+
+mkdir -p "$PLUGIN_DEST"
+cp -r "$PLUGIN_SRC"/. "$PLUGIN_DEST"/
+
+# Copy the shared dependency into the plugin's node_modules for dependency resolution
+mkdir -p "$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag"
+cp -r "$ROOT_DIR/node_modules/@openclaw-qdrant-rag"/. "$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag"/
+
+# Verify the plugin loads
+if node -e "require('$PLUGIN_DEST')" 2>/dev/null; then
+  color_echo "$green" "✓ Plugin installed and verified at $PLUGIN_DEST"
 else
-  color_echo "$yellow" "⚠ Add the following to the 'plugins' array in $OPENCLAW_CONFIG:"
-  cat << EOM
+  color_echo "$red" "✗ Plugin installed but failed to load via require(). Check build output."
+fi
+
+# Print the openclaw.json config snippet
+OPENCLAW_CONFIG="$OPENCLAW_HOME/openclaw.json"
+color_echo "$yellow" "⚠ Ensure the following entry exists in the 'plugins' array of $OPENCLAW_CONFIG:"
+cat << EOM
 
   {
     "id": "qdrant-rag",
-    "path": "$(pwd)/packages/plugin"
+    "configPath": "$OPENCLAW_HOME/workspace/skills/qdrant-rag/qdrant-rag.config.json"
   }
 
 EOM
-  color_echo "$yellow" "  After editing, restart the OpenClaw gateway for the plugin to load."
+color_echo "$yellow" "  The plugin directory is auto-discovered from plugins.load.paths (workspace/plugins/)."
+
+# Step 5b: Install skill
+color_echo "$green" "Step 5b: Installing skill to OpenClaw workspace..."
+SKILL_SRC="$ROOT_DIR/packages/skill"
+SKILL_DEST="$OPENCLAW_HOME/workspace/skills/qdrant-rag"
+
+if [ -d "$SKILL_DEST" ]; then
+  # Only back up if it's not already the config target from Step 4
+  # (Step 4 may have created the directory for the config file)
+  EXISTING_FILES=$(find "$SKILL_DEST" -maxdepth 1 -not -name "qdrant-rag.config.json" -not -name "." | head -1)
+  if [ -n "$EXISTING_FILES" ]; then
+    BACKUP="$SKILL_DEST.bak.$(date +%s)"
+    color_echo "$yellow" "⚠ Existing skill directory found. Backing up to $BACKUP"
+    # Preserve the config file if it exists
+    if [ -f "$SKILL_DEST/qdrant-rag.config.json" ]; then
+      SAVED_CONFIG=$(mktemp)
+      cp "$SKILL_DEST/qdrant-rag.config.json" "$SAVED_CONFIG"
+    fi
+    mv "$SKILL_DEST" "$BACKUP"
+    mkdir -p "$SKILL_DEST"
+    if [ -n "${SAVED_CONFIG:-}" ] && [ -f "$SAVED_CONFIG" ]; then
+      mv "$SAVED_CONFIG" "$SKILL_DEST/qdrant-rag.config.json"
+    fi
+  fi
 fi
+
+# Copy skill files (preserve any existing config file)
+if [ -f "$SKILL_DEST/qdrant-rag.config.json" ]; then
+  SAVED_CONFIG=$(mktemp)
+  cp "$SKILL_DEST/qdrant-rag.config.json" "$SAVED_CONFIG"
+fi
+
+cp -r "$SKILL_SRC"/. "$SKILL_DEST"/
+
+if [ -n "${SAVED_CONFIG:-}" ] && [ -f "${SAVED_CONFIG:-}" ]; then
+  mv "$SAVED_CONFIG" "$SKILL_DEST/qdrant-rag.config.json"
+fi
+
+color_echo "$green" "✓ Skill installed at $SKILL_DEST"
 
 # Step 6: Optional - Start Qdrant via Docker
 color_echo "$green" "Step 6: Optional Qdrant setup..."
@@ -159,7 +219,7 @@ color_echo "$green" "═══════════════════�
 echo ""
 color_echo "$yellow" "Next steps:"
 color_echo "$yellow" "  1. Ensure GEMINI_API_KEY is set in your environment"
-color_echo "$yellow" "  2. Add the plugin to your openclaw.json (see Step 5 output)"
+color_echo "$yellow" "  2. Add the plugin entry to your openclaw.json (see Step 5 output)"
 color_echo "$yellow" "  3. Start Qdrant if not already running"
 color_echo "$yellow" "  4. Restart the OpenClaw gateway"
 color_echo "$yellow" "  5. Run: node packages/skill/scripts/index-memory.mjs --help"

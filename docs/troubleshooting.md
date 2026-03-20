@@ -1,240 +1,98 @@
 # Troubleshooting
 
-Common issues and how to resolve them.
+Real issues encountered during plugin installation and migration — and how to fix them.
 
 ---
 
-## "Qdrant is not reachable"
+## 1. "plugin not found: qdrant-rag"
 
-**Symptoms:** Plugin logs errors about connection refused, timeout, or unreachable Qdrant. Auto-recall silently returns no results.
+This error means OpenClaw's plugin scanner didn't detect the plugin at startup. Three common causes:
 
-**Fixes:**
+### The plugin directory is a symlink
 
-1. **Check if Qdrant is running:**
-   ```bash
-   docker ps | grep qdrant
-   ```
-   If not running:
-   ```bash
-   docker compose -f docker/docker-compose.qdrant.yml up -d
-   ```
+OpenClaw scans `plugins/` using `fs.readdirSync` with `withFileTypes: true`. The resulting `Dirent.isDirectory()` returns **false** for symlinks — even symlinks pointing to directories. The scanner silently skips it.
 
-2. **Check the URL in your config:**
-   Default is `http://localhost:6333`. If Qdrant runs on a different host or port, update the `qdrant.url` in your plugin config.
+**Fix:** Copy the plugin directory instead of symlinking it.
 
-3. **Check connectivity:**
-   ```bash
-   curl http://localhost:6333/collections
-   ```
-   Should return a JSON response listing collections.
-
-4. **Docker networking:** If OpenClaw runs in a container and Qdrant runs in another container, `localhost` won't work. Use the Docker network name or host IP instead:
-   ```json
-   "qdrant": {
-     "url": "http://host.docker.internal:6333"
-   }
-   ```
-
----
-
-## "No results returned"
-
-**Symptoms:** Auto-recall is active but never injects any context. Debug logs show searches returning empty results.
-
-**Fixes:**
-
-1. **Verify the collection exists:**
-   ```bash
-   curl http://localhost:6333/collections/openclaw_memory
-   ```
-   If it doesn't exist, run the setup script or create it manually.
-
-2. **Check if data has been indexed:**
-   ```bash
-   node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/stats.mjs
-   ```
-   If point count is 0, run the indexing scripts:
-   ```bash
-   node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/index-memory.mjs
-   ```
-
-3. **Test a direct search:**
-   ```bash
-   node ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/search.mjs "your search query"
-   ```
-
-4. **Check the confidence threshold:** If your threshold is too high, results may be filtered out. Try lowering it:
-   ```json
-   "autoRecall": {
-     "confidenceThreshold": 0.20
-   }
-   ```
-
-5. **Check skip patterns:** Your message might match a skip pattern (e.g., short greetings). Try a longer, more specific message.
-
----
-
-## "Plugin not loading"
-
-**Symptoms:** No RAG context injected. No plugin-related entries in gateway logs. The system behaves as if the plugin doesn't exist.
-
-**Fixes:**
-
-1. **Check openclaw.json registration:**
-   ```bash
-   cat ~/.openclaw/openclaw.json | grep -A 5 qdrant-rag
-   ```
-   The plugin entry must be in the `plugins` array with the correct `path`.
-
-2. **Check the plugin path exists:**
-   ```bash
-   ls ~/.openclaw/workspace/skills/qdrant-rag/packages/plugin/
-   ```
-   Should contain `openclaw.plugin.json`, `dist/index.js` (or `index.ts`/`index.js` at root).
-
-3. **Check that dist/ was built:**
-   ```bash
-   ls ~/.openclaw/workspace/skills/qdrant-rag/packages/plugin/dist/
-   ```
-   If `dist/` is missing or empty, rebuild:
-   ```bash
-   cd ~/.openclaw/workspace/skills/qdrant-rag
-   npm run build
-   ```
-
-4. **Restart the gateway:**
-   ```bash
-   openclaw gateway restart
-   ```
-   Plugin loading happens at startup. Config changes alone don't reload plugins.
-
-5. **Check for startup errors** in the gateway log — look for errors mentioning the plugin name.
-
----
-
-## "Rate limited by Gemini"
-
-**Symptoms:** Embedding calls fail with 429 errors. Indexing stalls or completes with errors. Auto-recall intermittently fails.
-
-**Fixes:**
-
-1. **Check your Gemini API quota:** Free tier has limits on requests per minute. Visit [Google AI Studio](https://aistudio.google.com/) to check your usage.
-
-2. **Enable embedding cache:** The plugin caches query embeddings in memory. Ensure caching is enabled:
-   ```json
-   "embedding": {
-     "cacheTtlMs": 300000
-   }
-   ```
-
-3. **Reduce indexing batch size:**
-   ```json
-   "embedding": {
-     "batchSize": 50
-   }
-   ```
-
-4. **Stagger indexing scripts:** Don't run all three scripts simultaneously. Use the staggered schedule from [cron-setup.md](cron-setup.md).
-
-5. **Consider a paid Gemini plan** if you have a large workspace or high message volume.
-
----
-
-## "Auto-recall not injecting context"
-
-**Symptoms:** Plugin loads, Qdrant is reachable, data is indexed, but the agent still doesn't receive RAG context.
-
-**Fixes:**
-
-1. **Enable debug mode:**
-   ```json
-   "debug": {
-     "enabled": true
-   }
-   ```
-   Restart the gateway and send a test message. Check logs for:
-   - "Pre-gate extracted query: ..."
-   - "Qdrant returned N results"
-   - "Injecting N results (X tokens)"
-   - Or any error messages
-
-2. **Check auto-recall is enabled:**
-   ```json
-   "autoRecall": {
-     "enabled": true
-   }
-   ```
-
-3. **Check channel filters:** If you've configured `channels` or `excludeChannels`, make sure your current channel isn't excluded.
-
-4. **Check pre-gate:** If `preGate.enabled` is `true` but it's extracting empty queries, try setting `method` to `"keywords"` or disabling pre-gate to use raw messages:
-   ```json
-   "preGate": {
-     "enabled": false
-   }
-   ```
-
-5. **Try dry-run mode:**
-   ```json
-   "debug": {
-     "enabled": true,
-     "dryRun": true
-   }
-   ```
-   This searches and logs but doesn't inject. Check if results are found but not injected (a ranking/threshold issue) vs. no results found at all (a search/indexing issue).
-
----
-
-## Enabling Debug Logging
-
-Add to your plugin config:
-
-```json
-"debug": {
-  "enabled": true,
-  "logFile": "~/.openclaw/workspace/skills/qdrant-rag/packages/skill/logs/rag-debug.log"
-}
-```
-
-Restart the gateway. Debug output includes:
-- Pre-gate query extraction results
-- Embedding generation timing
-- Qdrant search results with raw scores
-- Ranking pipeline (weights, bonuses, final scores)
-- Injection decisions (what was included/excluded and why)
-
-To watch the log in real time:
 ```bash
-tail -f ~/.openclaw/workspace/skills/qdrant-rag/packages/skill/logs/rag-debug.log
+# Wrong — scanner won't see it
+ln -s /path/to/source plugins/qdrant-rag
+
+# Right
+cp -r /path/to/source plugins/qdrant-rag
+```
+
+### The plugin entry point fails to load
+
+The directory exists but the main module throws on import (usually a missing dependency). You can test this directly:
+
+```bash
+node -e "require('/path/to/plugins/qdrant-rag/dist/index.js')"
+```
+
+If it throws, fix the dependency issue (see [issue #3](#3-plugin-loads-but-openclaw-qdrant-ragcore-not-found) below) and try again.
+
+### Config references the plugin before a restart
+
+Plugin discovery happens **once at startup**. If you add a plugin reference to your config via `config.patch`, it validates against the currently-loaded plugin list — which doesn't include your new plugin yet.
+
+**Fix:** Write the config directly to `openclaw.json` (bypassing live validation), then restart OpenClaw.
+
+```bash
+# Edit openclaw.json directly to add plugin config
+# Then restart
+openclaw gateway restart
 ```
 
 ---
 
-## Verifying What Was Injected
+## 2. "plugin id mismatch (manifest uses X, entry hints Y)"
 
-To see exactly what the agent received as RAG context:
+The plugin folder name must match the `"id"` field in the plugin's `manifest.json`.
 
-1. **Enable score display:**
-   ```json
-   "debug": {
-     "includeScoresInContext": true
-   }
-   ```
-   This adds confidence scores to the injected context block, making them visible to the agent (and in conversation logs).
+**Example:** If the manifest declares `"id": "qdrant-rag"`, the folder must be named `qdrant-rag` — not `qdrant_rag`, not `qdrantRag`, not `my-rag-plugin`.
 
-2. **Ask the agent:** Send a message like "What RAG context did you receive for this message?" The agent can see the `[RAG Context]` block in its prompt.
+```
+plugins/
+  qdrant-rag/          ← folder name must match manifest id
+    manifest.json      ← { "id": "qdrant-rag", ... }
+    dist/
+      index.js
+```
 
-3. **Check session transcripts:** The injected context appears in the system prompt portion of the session transcript.
+**Fix:** Rename the folder to match the manifest id exactly.
 
 ---
 
-## Common Error Messages
+## 3. Plugin loads but `@openclaw-qdrant-rag/core` not found
 
-| Error | Meaning | Fix |
-|-------|---------|-----|
-| `ECONNREFUSED 127.0.0.1:6333` | Qdrant not running | Start Qdrant container |
-| `Collection not found: openclaw_memory` | Collection doesn't exist | Run `setup.sh` or create manually |
-| `403 Forbidden` (Gemini) | Invalid API key | Check `GEMINI_API_KEY` |
-| `429 Too Many Requests` (Gemini) | Rate limited | Reduce frequency, enable cache |
-| `Plugin initialization failed` | Build error or missing deps | Run `npm run build`, check for errors |
-| `Cannot find module 'dist/index.js'` | Plugin not built | Run `npm run build:plugin` |
+When you copy the plugin out of the monorepo, Node can no longer resolve workspace dependencies that lived in the repo root's `node_modules/`.
+
+**Fix:** Copy the workspace package into the plugin's own `node_modules/`:
+
+```bash
+mkdir -p plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag
+cp -r /path/to/repo/node_modules/@openclaw-qdrant-rag/core \
+      plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/core
+```
+
+Verify it resolves:
+
+```bash
+node -e "require('/path/to/plugins/qdrant-rag/dist/index.js')"
+```
+
+---
+
+## 4. Container won't start after adding plugin config
+
+OpenClaw validates the full config at startup. If your config references a plugin (in `plugins.allow` or `plugins.entries`) but the plugin directory doesn't exist or fails to load, validation fails and the container won't start.
+
+**Fix:** Order of operations matters:
+
+1. **Install the plugin files first** — copy directory, dependencies, everything
+2. **Verify the plugin loads** — `node -e "require(...)"` 
+3. **Add the plugin config** to `openclaw.json`
+4. **Restart** — `openclaw gateway restart`
+
+If you're already stuck in a crash loop, remove the plugin references from `openclaw.json`, restart, fix the plugin installation, then re-add the config.
