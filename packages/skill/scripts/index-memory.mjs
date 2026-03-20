@@ -33,6 +33,7 @@ Options:
   --full       Full reindex (ignore incremental state)
   --cleanup    After indexing, delete stale/orphaned points
   --dry-run    Preview what would be indexed (and cleaned) without changes
+  --limit N    Process at most N changed files per run (for incremental catch-up)
   --config F   Path to config file
   --help       Show this help
 
@@ -48,6 +49,7 @@ function parseCliArgs() {
       full: { type: 'boolean' },
       cleanup: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      limit: { type: 'string' },
       config: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -58,10 +60,17 @@ function parseCliArgs() {
     process.exit(0);
   }
 
+  const limit = values.limit ? parseInt(values.limit, 10) : undefined;
+  if (values.limit && (isNaN(limit) || limit < 1)) {
+    console.error('--limit must be a positive integer');
+    process.exit(1);
+  }
+
   return {
     full: values.full || false,
     cleanup: values.cleanup || false,
     dryRun: values['dry-run'] || false,
+    limit,
     configPath: values.config || undefined,
   };
 }
@@ -236,6 +245,7 @@ async function main() {
 
   console.log('=== Index Workspace Files ===');
   console.log(`Mode: ${args.full ? 'FULL reindex' : 'incremental'}`);
+  if (args.limit) console.log(`LIMIT — will process at most ${args.limit} changed file(s)`);
   if (args.cleanup) console.log('CLEANUP — will remove stale points after indexing');
   if (args.dryRun) console.log('DRY RUN — no changes will be made');
   console.log('');
@@ -341,8 +351,16 @@ async function main() {
   let totalChunks = 0;
   let totalPoints = 0;
   let errors = 0;
+  let filesProcessed = 0;
+  let limitReached = false;
 
   for (const { filePath, relPath } of toIndex) {
+    // Check limit before processing each file
+    if (args.limit && filesProcessed >= args.limit) {
+      limitReached = true;
+      break;
+    }
+
     let content;
     try {
       content = readFileSync(filePath, 'utf-8');
@@ -360,6 +378,7 @@ async function main() {
       for (let i = 0; i < chunks.length; i++) {
         upsertedIds.add(generatePointId(relPath, i));
       }
+      filesProcessed++;
       continue;
     }
 
@@ -397,11 +416,35 @@ async function main() {
         errors++;
       }
     }
+
+    filesProcessed++;
   }
 
-  // Save state
+  // Save state (only for files actually processed when limit is active)
   if (!args.dryRun) {
-    saveState(newState);
+    if (limitReached) {
+      // Only save state for files we actually processed
+      const processedState = args.full ? {} : loadState();
+      for (let i = 0; i < filesProcessed && i < toIndex.length; i++) {
+        const relPath = toIndex[i].relPath;
+        processedState[relPath] = newState[relPath];
+      }
+      // Also keep unchanged file entries
+      for (const filePath of allFiles) {
+        const relPath = relative(workspace, filePath);
+        if (!toIndex.find(t => t.relPath === relPath)) {
+          processedState[relPath] = newState[relPath];
+        }
+      }
+      saveState(processedState);
+    } else {
+      saveState(newState);
+    }
+  }
+
+  if (limitReached) {
+    const remaining = toIndex.length - filesProcessed;
+    console.log(`\nLimit reached (${filesProcessed}/${args.limit}). ${remaining} remaining file(s) will be processed in the next run.`);
   }
 
   // Cleanup stale points
@@ -428,7 +471,7 @@ async function main() {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log('');
   console.log('=== Summary ===');
-  console.log(`Files processed: ${toIndex.length}`);
+  console.log(`Files processed: ${filesProcessed}${args.limit ? ` (limit: ${args.limit})` : ''}`);
   console.log(`Chunks: ${totalChunks}`);
   console.log(`Points upserted: ${totalPoints}`);
   if (errors > 0) console.log(`Errors: ${errors}`);

@@ -38,6 +38,7 @@ Options:
   --full       Full reindex (ignore incremental state)
   --cleanup    After indexing, delete stale/orphaned points
   --dry-run    Preview what would be indexed (and cleaned) without changes
+  --limit N    Process at most N changed sessions per run (for incremental catch-up)
   --config F   Path to config file
   --help       Show this help
 
@@ -53,6 +54,7 @@ function parseCliArgs() {
       full: { type: 'boolean' },
       cleanup: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      limit: { type: 'string' },
       config: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -63,10 +65,17 @@ function parseCliArgs() {
     process.exit(0);
   }
 
+  const limit = values.limit ? parseInt(values.limit, 10) : undefined;
+  if (values.limit && (isNaN(limit) || limit < 1)) {
+    console.error('--limit must be a positive integer');
+    process.exit(1);
+  }
+
   return {
     full: values.full || false,
     cleanup: values.cleanup || false,
     dryRun: values['dry-run'] || false,
+    limit,
     configPath: values.config || undefined,
   };
 }
@@ -312,6 +321,7 @@ async function main() {
 
   console.log('=== Index Transcripts ===');
   console.log(`Mode: ${args.full ? 'FULL reindex' : 'incremental'}`);
+  if (args.limit) console.log(`LIMIT — will process at most ${args.limit} changed session(s)`);
   if (args.cleanup) console.log('CLEANUP — will remove stale points after indexing');
   if (args.dryRun) console.log('DRY RUN — no changes will be made');
   console.log('');
@@ -407,8 +417,16 @@ async function main() {
   let totalChunks = 0;
   let totalPoints = 0;
   let errors = 0;
+  let sessionsProcessed = 0;
+  let limitReached = false;
 
   for (const { filePath, agentId, sessionId } of toIndex) {
+    // Check limit before processing each session
+    if (args.limit && sessionsProcessed >= args.limit) {
+      limitReached = true;
+      break;
+    }
+
     let messages;
     try {
       messages = await parseTranscript(filePath);
@@ -430,6 +448,7 @@ async function main() {
       for (let i = 0; i < chunks.length; i++) {
         upsertedIds.add(generatePointId(agentId, sessionId, i));
       }
+      sessionsProcessed++;
       continue;
     }
 
@@ -476,11 +495,35 @@ async function main() {
         errors++;
       }
     }
+
+    sessionsProcessed++;
   }
 
-  // Save state
+  // Save state (only for sessions actually processed when limit is active)
   if (!args.dryRun) {
-    saveState(newState);
+    if (limitReached) {
+      // Only save state for sessions we actually processed
+      const processedState = args.full ? {} : loadState();
+      for (let i = 0; i < sessionsProcessed && i < toIndex.length; i++) {
+        const key = `${toIndex[i].agentId}/${toIndex[i].sessionId}`;
+        processedState[key] = newState[key];
+      }
+      // Also keep unchanged session entries
+      for (const t of transcripts) {
+        const key = `${t.agentId}/${t.sessionId}`;
+        if (!toIndex.find(ti => ti.agentId === t.agentId && ti.sessionId === t.sessionId)) {
+          processedState[key] = newState[key];
+        }
+      }
+      saveState(processedState);
+    } else {
+      saveState(newState);
+    }
+  }
+
+  if (limitReached) {
+    const remaining = toIndex.length - sessionsProcessed;
+    console.log(`\nLimit reached (${sessionsProcessed}/${args.limit}). ${remaining} remaining session(s) will be processed in the next run.`);
   }
 
   // Cleanup stale points
@@ -507,7 +550,7 @@ async function main() {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log('');
   console.log('=== Summary ===');
-  console.log(`Transcripts processed: ${toIndex.length}`);
+  console.log(`Transcripts processed: ${sessionsProcessed}${args.limit ? ` (limit: ${args.limit})` : ''}`);
   console.log(`Chunks: ${totalChunks}`);
   console.log(`Points upserted: ${totalPoints}`);
   if (errors > 0) console.log(`Errors: ${errors}`);
