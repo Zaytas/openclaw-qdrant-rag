@@ -48,14 +48,14 @@ openclaw gateway restart
 
 ## 2. "plugin id mismatch (manifest uses X, entry hints Y)"
 
-The plugin folder name must match the `"id"` field in the plugin's `manifest.json`.
+The plugin folder name must match the `"id"` field in the plugin's `openclaw.plugin.json`.
 
 **Example:** If the manifest declares `"id": "qdrant-rag"`, the folder must be named `qdrant-rag` — not `qdrant_rag`, not `qdrantRag`, not `my-rag-plugin`.
 
 ```
 plugins/
-  qdrant-rag/          ← folder name must match manifest id
-    manifest.json      ← { "id": "qdrant-rag", ... }
+  qdrant-rag/               ← folder name must match manifest id
+    openclaw.plugin.json     ← { "id": "qdrant-rag", ... }
     dist/
       index.js
 ```
@@ -72,9 +72,11 @@ When you copy the plugin out of the monorepo, Node can no longer resolve workspa
 
 ```bash
 mkdir -p plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag
-cp -r /path/to/repo/node_modules/@openclaw-qdrant-rag/core \
+cp -rL /path/to/repo/node_modules/@openclaw-qdrant-rag/core \
       plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/core
 ```
+
+> **Note:** The `-L` flag dereferences symlinks. This is important because workspace-linked packages (e.g. from `npm link` or pnpm workspaces) are often symlinks — without `-L`, you'd copy the symlink itself rather than the actual files.
 
 Verify it resolves:
 
@@ -96,3 +98,37 @@ OpenClaw validates the full config at startup. If your config references a plugi
 4. **Restart** — `openclaw gateway restart`
 
 If you're already stuck in a crash loop, remove the plugin references from `openclaw.json`, restart, fix the plugin installation, then re-add the config.
+
+---
+
+## 5. Plugin Loads But Recall Never Happens
+
+The plugin uses lazy initialization — it registers at startup but only imports rag-core on the first qualifying message. If that import fails, it fails silently (fail-open design).
+
+**Symptoms:** Plugin shows registered in logs, no errors at startup, but no RAG context injected.
+
+**Causes:**
+- `@openclaw-qdrant-rag/core` not resolvable from installed location
+- Qdrant not reachable from the gateway container
+- `GEMINI_API_KEY` not set in gateway's environment (not just your shell)
+- Pre-gate filtering all messages (minMessageLength, skipPatterns)
+
+**Diagnosis:**
+- Enable debug: set `debug.logQueries`, `debug.logInjections`, `debug.logSkips` to true
+- Check logs for `[qdrant-rag]` entries after sending a message
+- Test rag-core: `node -e "require('/path/to/plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/core/dist/index.js')"`
+- Test Qdrant: `curl http://your-qdrant:6333/healthz`
+
+---
+
+## Start Fresh (Nuclear Option)
+
+When everything is broken:
+
+1. Remove qdrant-rag from `openclaw.json`:
+   - Remove `"qdrant-rag"` from `plugins.allow`
+   - Remove `plugins.entries.qdrant-rag`
+2. Delete plugin: `rm -rf ~/.openclaw/workspace/plugins/qdrant-rag`
+3. Delete skill: `rm -rf ~/.openclaw/workspace/skills/qdrant-rag`
+4. Restart container/gateway — verify clean start (no qdrant-rag warnings)
+5. Reinstall from scratch: `cd openclaw-qdrant-rag && ./setup.sh`

@@ -50,6 +50,12 @@ cd openclaw-qdrant-rag
 Start Qdrant if you haven't:
 
 ```bash
+docker compose -f docker/docker-compose.qdrant.yml up -d
+```
+
+Or manually:
+
+```bash
 docker run -d --name qdrant -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant
 ```
 
@@ -79,8 +85,10 @@ cp -r packages/plugin/ ~/.openclaw/workspace/plugins/qdrant-rag/
 
 ```bash
 mkdir -p ~/.openclaw/workspace/plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag
-cp -r node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/
+cp -rL node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/
 ```
+
+> The `-L` flag dereferences symlinks, which is required because npm workspaces use symlinks in `node_modules`.
 
 **4. Register the plugin in `openclaw.json`**
 
@@ -90,23 +98,26 @@ cp -r node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/plugins/qdrant-r
     "allow": ["qdrant-rag"],
     "entries": {
       "qdrant-rag": {
-        "configPath": "/home/YOUR_USER/.openclaw/workspace/skills/qdrant-rag/qdrant-rag.config.json",
-        "autoRecall": {
-          "enabled": true,
-          "maxResults": 6,
-          "minScore": 0.4,
-          "maxTokens": 2000,
-          "hardCapTokens": 3000,
-          "skipSubagents": true
-        },
-        "preGate": {
-          "minMessageLength": 10,
-          "skipPatterns": ["^\\s*$", "^(ok|thanks|yes|no|sure|got it)\\s*$"]
-        },
-        "debug": {
-          "logQueries": false,
-          "logInjections": false,
-          "logSkips": false
+        "enabled": true,
+        "config": {
+          "configPath": "/home/YOUR_USER/.openclaw/workspace/skills/qdrant-rag/qdrant-rag.config.json",
+          "autoRecall": {
+            "enabled": true,
+            "maxResults": 6,
+            "minScore": 0.4,
+            "maxTokens": 2000,
+            "hardCapTokens": 3000,
+            "skipSubagents": true
+          },
+          "preGate": {
+            "minMessageLength": 10,
+            "skipPatterns": ["^\\s*$", "^(ok|thanks|yes|no|sure|got it)\\s*$"]
+          },
+          "debug": {
+            "logQueries": false,
+            "logInjections": false,
+            "logSkips": false
+          }
         }
       }
     }
@@ -119,6 +130,8 @@ cp -r node_modules/@openclaw-qdrant-rag/* ~/.openclaw/workspace/plugins/qdrant-r
 ```bash
 cp -r packages/skill/ ~/.openclaw/workspace/skills/qdrant-rag/
 ```
+
+> **Note:** `packages/skill/` may contain development state files. Only copy `scripts/`, `SKILL.md`, `config.mjs`, and the example config. Do not copy `.json` state files or `summaries/` — those are generated at runtime.
 
 **6. Copy and edit the config**
 
@@ -142,11 +155,39 @@ Add to your shell profile or OpenClaw's environment config for persistence.
 openclaw gateway restart
 ```
 
+### Verify Installation
+
+After completing the manual install steps, verify everything is wired correctly:
+
+1. **Plugin loads without errors:**
+   ```bash
+   node -e "require('$HOME/.openclaw/workspace/plugins/qdrant-rag/dist/index.js')"
+   ```
+
+2. **rag-core resolves from the plugin's node_modules:**
+   ```bash
+   node -e "require('$HOME/.openclaw/workspace/plugins/qdrant-rag/node_modules/@openclaw-qdrant-rag/core/dist/index.js')"
+   ```
+
+3. **Restart the gateway:**
+   ```bash
+   openclaw gateway restart
+   ```
+
+4. **Check gateway logs** for a line like:
+   ```
+   [qdrant-rag] registered (autoRecall=true, ...)
+   ```
+
+5. **Send a test message** and check logs for auto-recall activity (embedding queries, retrieval results, or skip reasons).
+
 ---
 
 ## Plugin Configuration
 
-Full schema for the `plugins.entries.qdrant-rag` block in `openclaw.json`:
+Full schema for the `plugins.entries.qdrant-rag.config` block in `openclaw.json`:
+
+> **Note:** All configuration keys below go inside `"config": { ... }` within the plugin entry. The entry itself only has `"enabled"` and `"config"`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -199,6 +240,7 @@ Located in `packages/skill/scripts/`:
 - ⚠️ **Do NOT symlink the plugin directory.** OpenClaw's plugin scanner uses `isDirectory()` on the resolved path, which returns `false` for symlinks. Copy with `cp -r` instead.
 - **`configPath` must be absolute.** Relative paths will fail to resolve at plugin load time.
 - **Plugin config validation depends on successful load.** If the plugin fails to load (missing dependencies, bad entry point), config validation for its `entries` block also fails — check gateway logs for the root cause.
+- ⚠️ **First install timing:** `config.patch` validates against currently-loaded plugins. On first install, the plugin isn't loaded yet. Edit `openclaw.json` directly, then restart the gateway.
 
 ---
 

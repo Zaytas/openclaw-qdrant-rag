@@ -153,7 +153,7 @@ function formatForInjection(results, maxTokens, hardCapTokens) {
     return lines.join('\n').trim();
 }
 async function importCore() {
-    const core = await import('../../rag-core/dist/index.js');
+    const core = await import('@openclaw-qdrant-rag/core');
     return {
         loadConfig: core.loadConfig,
         Embedder: core.Embedder,

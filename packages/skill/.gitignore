@@ -1,0 +1,13 @@
+# User state — never ship with repo
+index-state.json
+transcript-state.json
+summary-state.json
+pending-summaries.json
+pending-summary-input.json
+summaries-output*.json
+summaries/
+logs/
+
+# Live config (only example ships)
+qdrant-rag.config.json
+!qdrant-rag.config.example.json

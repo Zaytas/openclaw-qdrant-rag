@@ -29,6 +29,9 @@
     "auto-recall"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@openclaw-qdrant-rag/core": "*"
+  },
   "devDependencies": {
     "typescript": "5.5"
   }

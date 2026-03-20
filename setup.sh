@@ -53,8 +53,11 @@ color_echo "$green" "Step 3: Building TypeScript packages..."
 ROOT_DIR=$(pwd)
 RAG_CORE_SRC="$ROOT_DIR/packages/rag-core/src/index.ts"
 RAG_CORE_DIST="$ROOT_DIR/packages/rag-core/dist/index.js"
+PLUGIN_SRC_TS="$ROOT_DIR/packages/plugin/src/index.ts"
+PLUGIN_DIST_JS="$ROOT_DIR/packages/plugin/dist/index.js"
 
-if [ ! -f "$RAG_CORE_DIST" ] || [ "$RAG_CORE_SRC" -nt "$RAG_CORE_DIST" ]; then
+if [ ! -f "$RAG_CORE_DIST" ] || [ "$RAG_CORE_SRC" -nt "$RAG_CORE_DIST" ] \
+   || [ ! -f "$PLUGIN_DIST_JS" ] || [ "$PLUGIN_SRC_TS" -nt "$PLUGIN_DIST_JS" ]; then
   color_echo "$yellow" "⚠ Compiling TypeScript packages as dist/ is stale or missing."
   npm install typescript@latest --save-dev
   npx tsc -p packages/rag-core/tsconfig.json
@@ -100,9 +103,11 @@ fi
 mkdir -p "$PLUGIN_DEST"
 cp -r "$PLUGIN_SRC"/. "$PLUGIN_DEST"/
 
-# Copy the shared dependency into the plugin's node_modules for dependency resolution
+# Copy the shared dependency into the plugin's node_modules for dependency resolution.
+# Use -rL to dereference symlinks — npm workspaces create symlinks in node_modules
+# that won't resolve once copied outside the repo tree.
 mkdir -p "$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag"
-cp -r "$ROOT_DIR/node_modules/@openclaw-qdrant-rag"/. "$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag"/
+cp -rL "$ROOT_DIR/node_modules/@openclaw-qdrant-rag"/. "$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag"/
 
 # Verify the plugin loads
 if node -e "require('$PLUGIN_DEST')" 2>/dev/null; then
@@ -111,14 +116,30 @@ else
   color_echo "$red" "✗ Plugin installed but failed to load via require(). Check build output."
 fi
 
+# Verify rag-core is resolvable from the installed plugin
+if node -e "require('$PLUGIN_DEST/node_modules/@openclaw-qdrant-rag/core/dist/index.js'); console.log('rag-core: OK')" 2>/dev/null; then
+  color_echo "$green" "✓ rag-core dependency verified inside installed plugin."
+else
+  color_echo "$red" "✗ rag-core not resolvable from installed plugin. Symlinks may not have been dereferenced."
+fi
+
 # Print the openclaw.json config snippet
 OPENCLAW_CONFIG="$OPENCLAW_HOME/openclaw.json"
-color_echo "$yellow" "⚠ Ensure the following entry exists in the 'plugins' array of $OPENCLAW_CONFIG:"
+color_echo "$yellow" "⚠ Add 'qdrant-rag' to plugins.allow and plugins.entries in $OPENCLAW_CONFIG:"
 cat << EOM
 
   {
-    "id": "qdrant-rag",
-    "configPath": "$OPENCLAW_HOME/workspace/skills/qdrant-rag/qdrant-rag.config.json"
+    "plugins": {
+      "allow": ["...", "qdrant-rag"],
+      "entries": {
+        "qdrant-rag": {
+          "enabled": true,
+          "config": {
+            "configPath": "$CONFIG_TARGET"
+          }
+        }
+      }
+    }
   }
 
 EOM

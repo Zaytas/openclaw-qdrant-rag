@@ -22,7 +22,7 @@ import type {
 // Core imports — shared RAG library
 // These are resolved at runtime from the sibling rag-core package.
 // In the monorepo, rag-core must be built first (dist/ populated).
-import type { RagConfig, SearchResult } from '../../rag-core/dist/index.js';
+import type { RagConfig, SearchResult } from '@openclaw-qdrant-rag/core';
 
 import { shouldRetrieve } from './pre-gate.js';
 import { createLogger } from './debug.js';
@@ -238,7 +238,7 @@ interface CoreModules {
 }
 
 async function importCore(): Promise<CoreModules> {
-  const core = await import('../../rag-core/dist/index.js');
+  const core = await import('@openclaw-qdrant-rag/core');
   return {
     loadConfig: core.loadConfig,
     Embedder: core.Embedder,
