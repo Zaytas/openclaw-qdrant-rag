@@ -94,6 +94,11 @@ function extractMessage(
   event: Record<string, unknown>,
   ctx: Record<string, unknown>,
 ): string | undefined {
+  // event.prompt is the canonical field for before_prompt_build
+  if (typeof event.prompt === 'string' && event.prompt.trim()) {
+    return event.prompt;
+  }
+
   // Direct message property
   if (typeof event.message === 'string' && event.message.trim()) {
     return event.message;
@@ -106,8 +111,19 @@ function extractMessage(
   if (Array.isArray(event.messages)) {
     for (let i = event.messages.length - 1; i >= 0; i--) {
       const msg = event.messages[i] as Record<string, unknown> | undefined;
-      if (msg && msg.role === 'user' && typeof msg.content === 'string' && msg.content.trim()) {
-        return msg.content;
+      if (msg && msg.role === 'user') {
+        // Handle string content
+        if (typeof msg.content === 'string' && msg.content.trim()) {
+          return msg.content;
+        }
+        // Handle Vercel AI SDK array content: [{type: 'text', text: '...'}]
+        if (Array.isArray(msg.content)) {
+          const textParts = (msg.content as Array<Record<string, unknown>>)
+            .filter((p) => p.type === 'text' && typeof p.text === 'string')
+            .map((p) => p.text as string);
+          const joined = textParts.join('\n').trim();
+          if (joined) return joined;
+        }
       }
     }
   }
@@ -143,8 +159,13 @@ function extractMessage(
 function extractSessionMeta(ctx: Record<string, unknown>): SessionMeta {
   const session = safeObj(ctx.session);
 
-  const sessionKey = typeof session.key === 'string' ? session.key : undefined;
-  const sessionId = typeof session.id === 'string' ? session.id : undefined;
+  // Check both flat and nested paths for session key/id
+  const sessionKey = typeof ctx.sessionKey === 'string' ? ctx.sessionKey
+    : typeof session.key === 'string' ? session.key
+    : undefined;
+  const sessionId = typeof ctx.sessionId === 'string' ? ctx.sessionId
+    : typeof session.id === 'string' ? session.id
+    : undefined;
 
   const keyOrId = sessionKey ?? sessionId ?? '';
   const isSubagent = keyOrId.includes(':subagent:');
